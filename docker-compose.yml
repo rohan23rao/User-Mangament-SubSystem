@@ -1,0 +1,109 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: userms
+      POSTGRES_USER: userms
+      POSTGRES_PASSWORD: userms_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - intranet
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U userms -d userms"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kratos-migrate:
+    image: oryd/kratos:v1.0.0
+    environment:
+      - DSN=postgres://userms:userms_password@postgres:5432/userms?sslmode=disable
+    volumes:
+      - type: bind
+        source: ./config/kratos
+        target: /etc/config/kratos
+        read_only: true
+    command: -c /etc/config/kratos/kratos.yml migrate sql -e --yes
+    restart: on-failure
+    networks:
+      - intranet
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  kratos:
+    depends_on:
+      - kratos-migrate
+    image: oryd/kratos:v1.0.0
+    ports:
+      - '4433:4433' # public
+      - '4434:4434' # admin
+    restart: unless-stopped
+    environment:
+      - DSN=postgres://userms:userms_password@postgres:5432/userms?sslmode=disable
+      - LOG_LEVEL=trace
+      - GOOGLE_CLIENT_ID=165106799463-ijl47hp8fco7abh6hcsu453lb4kvqjlf.apps.googleusercontent.com
+      - GOOGLE_CLIENT_SECRET=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
+    command: serve -c /etc/config/kratos/kratos.yml --dev --watch-courier
+    volumes:
+      - type: bind
+        source: ./config/kratos
+        target: /etc/config/kratos
+        read_only: true
+    networks:
+      - intranet
+
+  backend:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - KRATOS_PUBLIC_URL=http://kratos:4433
+      - KRATOS_ADMIN_URL=http://kratos:4434
+      - DATABASE_URL=postgres://userms:userms_password@postgres:5432/userms?sslmode=disable
+      - PORT=3000
+    volumes:
+      - ./:/app
+      - /app/tmp  # Exclude tmp directory from volume mount
+    networks:
+      - intranet
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kratos:
+        condition: service_started
+    restart: unless-stopped
+    command: ["./main"]
+
+  mailslurper:
+    image: oryd/mailslurper:latest-smtps
+    ports:
+      - '4436:4436'
+      - '4437:4437'
+    networks:
+      - intranet
+
+  # ADD THIS NEW SERVICE HERE:
+  frontend-test:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./index.html:/usr/share/nginx/html/index.html:ro
+    networks:
+      - intranet
+    depends_on:
+      - kratos
+      - backend
+
+networks:
+  intranet:
+
+volumes:
+  postgres_data:

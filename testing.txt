@@ -1,0 +1,86 @@
+# Get registration flow
+REG_FLOW1=$(curl -s http://localhost:4433/self-service/registration/api | jq -r '.id')
+echo "Registration Flow 1: $REG_FLOW1"
+
+# Register first user (will be organization admin)
+curl -X POST http://localhost:4433/self-service/registration?flow=$REG_FLOW1 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "traits.email": "admin@company.com",
+    "traits.name.first": "admin",
+    "traits.name.last": "user",
+    "password": "UniqueRiver@1313",
+    "method": "password"
+  }' | jq '.'
+
+
+LOGIN_FLOW1=$(curl -s http://localhost:4433/self-service/login/api | jq -r '.id')
+echo "Login Flow 1: $LOGIN_FLOW1"
+
+# Login first user and save session
+curl -X POST http://localhost:4433/self-service/login?flow=$LOGIN_FLOW1 \
+  -H "Content-Type: application/json" \
+  -c admin_cookies.txt \
+  -d '{
+    "identifier": "admin@company.com",
+    "password": "UniqueRiver@1313",
+    "method": "password"
+  }' | jq '.'
+
+# Display all users
+curl -s http://localhost:3000/api/users -b admin_cookies.txt | jq '.'
+
+curl -b login_cookies.txt -X GET http://localhost:4433/sessions/whoami
+
+# Create organization as admin
+curl -X POST http://localhost:3000/api/organizations \
+  -H "Content-Type: application/json" \
+  -b admin_cookies.txt \
+  -d '{
+    "name": "Tech Solutions Inc",
+    "description": "A technology consulting company"
+  }' | jq '.'
+
+#list organizations
+curl -b login_cookies.txt -X GET http://localhost:3000/api/organizations
+
+#get specific organization
+ORG_ID=1
+curl -b login_cookies.txt -X GET http://localhost:3000/api/organizations/$ORG_ID
+
+update organization
+
+ORG_ID=1
+curl -b login_cookies.txt -X PUT \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Tech Solutions Inc - Updated",
+    "description": "An updated leading technology company"
+  }' \
+  http://localhost:3000/api/organizations/$ORG_ID
+
+Delete organization
+ORG_ID=1
+curl -b login_cookies.txt -X DELETE http://localhost:3000/api/organizations/$ORG_ID
+
+Add member to organization
+ORG_ID=1
+curl -b login_cookies.txt -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "bob.smith@company.com",
+    "role": "member"
+  }' \
+  http://localhost:3000/api/organizations/$ORG_ID/members
+
+logout
+curl -b login_cookies.txt -X POST http://localhost:3000/auth/logout
+
+
+# Should return 401 Unauthorized
+curl -X GET http://localhost:3000/api/whoami
+
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Unauthorized Org"}' \
+  http://localhost:3000/api/organizations

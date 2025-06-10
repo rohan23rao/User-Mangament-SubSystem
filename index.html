@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kratos Google OIDC Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 30px;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+        }
+        .error-container {
+            background: rgba(220, 38, 38, 0.2);
+            border: 2px solid rgba(220, 38, 38, 0.5);
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        .success-container {
+            background: rgba(16, 185, 129, 0.2);
+            border: 2px solid rgba(16, 185, 129, 0.5);
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        button {
+            background: linear-gradient(45deg, #4285f4, #34a853);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            margin: 10px;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+        .debug-info {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-family: monospace;
+            font-size: 14px;
+            overflow-x: auto;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .status.loading {
+            background: rgba(59, 130, 246, 0.2);
+            border-left: 4px solid #3b82f6;
+        }
+        .status.success {
+            background: rgba(16, 185, 129, 0.2);
+            border-left: 4px solid #10b981;
+        }
+        .status.error {
+            background: rgba(220, 38, 38, 0.2);
+            border-left: 4px solid #dc2626;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 Kratos Google OIDC Test</h1>
+        
+        <div id="status" class="status loading">
+            🔄 Initializing...
+        </div>
+
+        <div id="error-display" style="display: none;">
+            <h3>❌ Error Details</h3>
+            <div id="error-content" class="debug-info"></div>
+        </div>
+
+        <div id="success-display" style="display: none;">
+            <h3>✅ Success!</h3>
+            <div id="success-content" class="debug-info"></div>
+        </div>
+
+        <div>
+            <h3>🧪 Test Actions</h3>
+            <button onclick="testRegistration()">Test Registration with Google</button>
+            <button onclick="testLogin()">Test Login with Google</button>
+            <button onclick="checkSession()">Check Current Session</button>
+            <button onclick="testWhoAmI()">Test WhoAmI</button>
+        </div>
+
+        <div id="flows-info" class="debug-info">
+            <h4>Flow Information</h4>
+            <div id="flow-details">Click a test button to see flow details...</div>
+        </div>
+
+        <div id="debug-output" class="debug-info">
+            <h4>Debug Output</h4>
+            <div id="debug-content">Debug information will appear here...</div>
+        </div>
+    </div>
+
+    <script>
+        const statusEl = document.getElementById('status');
+        const errorDisplayEl = document.getElementById('error-display');
+        const errorContentEl = document.getElementById('error-content');
+        const successDisplayEl = document.getElementById('success-display');
+        const successContentEl = document.getElementById('success-content');
+        const flowDetailsEl = document.getElementById('flow-details');
+        const debugContentEl = document.getElementById('debug-content');
+
+        function updateStatus(message, type = 'loading') {
+            statusEl.textContent = message;
+            statusEl.className = `status ${type}`;
+        }
+
+        function showError(message) {
+            errorContentEl.textContent = message;
+            errorDisplayEl.style.display = 'block';
+            successDisplayEl.style.display = 'none';
+            updateStatus('❌ Error occurred', 'error');
+        }
+
+        function showSuccess(message) {
+            successContentEl.textContent = message;
+            successDisplayEl.style.display = 'block';
+            errorDisplayEl.style.display = 'none';
+            updateStatus('✅ Success!', 'success');
+        }
+
+        function addDebug(message) {
+            debugContentEl.innerHTML += `<div>${new Date().toLocaleTimeString()}: ${message}</div>`;
+        }
+
+        async function makeRequest(url, options = {}) {
+            try {
+                addDebug(`Making request to: ${url}`);
+                const response = await fetch(url, {
+                    credentials: 'include',
+                    ...options
+                });
+                
+                addDebug(`Response status: ${response.status}`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                addDebug(`Response data: ${JSON.stringify(data, null, 2)}`);
+                return data;
+            } catch (error) {
+                addDebug(`Error: ${error.message}`);
+                throw error;
+            }
+        }
+
+        async function testRegistration() {
+            try {
+                updateStatus('🔄 Testing registration flow...', 'loading');
+                addDebug('Starting registration test...');
+                
+                const flow = await makeRequest('http://localhost:4433/self-service/registration/api');
+                flowDetailsEl.innerHTML = `<pre>${JSON.stringify(flow, null, 2)}</pre>`;
+                
+                // Look for Google provider
+                const googleNode = flow.ui.nodes.find(node => 
+                    node.attributes && node.attributes.value === 'google'
+                );
+                
+                if (googleNode) {
+                    showSuccess('Google OIDC provider found in registration flow!');
+                    addDebug('Google provider is properly configured');
+                    
+                    // Create form and submit to trigger Google OAuth
+                    const form = document.createElement('form');
+                    form.method = 'POST';
+                    form.action = `http://localhost:4433/self-service/registration?flow=${flow.id}`;
+                    
+                    const providerInput = document.createElement('input');
+                    providerInput.type = 'hidden';
+                    providerInput.name = 'provider';
+                    providerInput.value = 'google';
+                    
+                    const methodInput = document.createElement('input');
+                    methodInput.type = 'hidden';
+                    methodInput.name = 'method';
+                    methodInput.value = 'oidc';
+                    
+                    form.appendChild(providerInput);
+                    form.appendChild(methodInput);
+                    document.body.appendChild(form);
+                    
+                    addDebug('Submitting form to trigger Google OAuth...');
+                    form.submit();
+                } else {
+                    showError('Google OIDC provider not found in registration flow');
+                }
+                
+            } catch (error) {
+                showError(`Registration test failed: ${error.message}`);
+            }
+        }
+
+        async function testLogin() {
+            try {
+                updateStatus('🔄 Testing login flow...', 'loading');
+                addDebug('Starting login test...');
+                
+                const flow = await makeRequest('http://localhost:4433/self-service/login/api');
+                flowDetailsEl.innerHTML = `<pre>${JSON.stringify(flow, null, 2)}</pre>`;
+                
+                const googleNode = flow.ui.nodes.find(node => 
+                    node.attributes && node.attributes.value === 'google'
+                );
+                
+                if (googleNode) {
+                    showSuccess('Google OIDC provider found in login flow!');
+                    
+                    // Create form and submit to trigger Google OAuth
+                    const form = document.createElement('form');
+                    form.method = 'POST';
+                    form.action = `http://localhost:4433/self-service/login?flow=${flow.id}`;
+                    
+                    const providerInput = document.createElement('input');
+                    providerInput.type = 'hidden';
+                    providerInput.name = 'provider';
+                    providerInput.value = 'google';
+                    
+                    const methodInput = document.createElement('input');
+                    methodInput.type = 'hidden';
+                    methodInput.name = 'method';
+                    methodInput.value = 'oidc';
+                    
+                    form.appendChild(providerInput);
+                    form.appendChild(methodInput);
+                    document.body.appendChild(form);
+                    
+                    addDebug('Submitting form to trigger Google OAuth...');
+                    form.submit();
+                } else {
+                    showError('Google OIDC provider not found in login flow');
+                }
+                
+            } catch (error) {
+                showError(`Login test failed: ${error.message}`);
+            }
+        }
+
+        async function checkSession() {
+            try {
+                updateStatus('🔄 Checking session...', 'loading');
+                addDebug('Checking current session...');
+                
+                const session = await makeRequest('http://localhost:4433/sessions/whoami');
+                showSuccess('Valid session found!');
+                flowDetailsEl.innerHTML = `<pre>${JSON.stringify(session, null, 2)}</pre>`;
+                
+            } catch (error) {
+                addDebug('No valid session found (this is normal if not logged in)');
+                updateStatus('ℹ️ No active session', 'loading');
+                flowDetailsEl.innerHTML = 'No active session found.';
+            }
+        }
+
+        async function testWhoAmI() {
+            try {
+                updateStatus('🔄 Testing WhoAmI endpoint...', 'loading');
+                addDebug('Testing backend WhoAmI...');
+                
+                const response = await makeRequest('http://localhost:3000/api/whoami');
+                showSuccess('WhoAmI succeeded!');
+                flowDetailsEl.innerHTML = `<pre>${JSON.stringify(response, null, 2)}</pre>`;
+                
+            } catch (error) {
+                showError(`WhoAmI test failed: ${error.message}`);
+            }
+        }
+
+        // Check URL parameters for error or success
+        window.addEventListener('load', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const errorId = urlParams.get('id');
+            
+            if (errorId) {
+                updateStatus('🔍 Checking error details...', 'loading');
+                addDebug(`Found error ID in URL: ${errorId}`);
+                
+                // Try to get error details
+                fetch(`http://localhost:4433/self-service/errors?id=${errorId}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        showError(`Error from Kratos: ${JSON.stringify(data, null, 2)}`);
+                        flowDetailsEl.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+                    })
+                    .catch(err => {
+                        showError(`Could not fetch error details: ${err.message}`);
+                    });
+            } else {
+                updateStatus('🚀 Ready for testing', 'success');
+                addDebug('Test page loaded successfully');
+            }
+        });
+    </script>
+</body>
+</html>
