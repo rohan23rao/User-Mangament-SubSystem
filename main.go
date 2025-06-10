@@ -172,7 +172,7 @@ func getEnv(key, defaultValue string) string {
 
 func initDB() (*sql.DB, error) {
 	databaseURL := getEnv("DATABASE_URL", "postgres://userms:userms_password@localhost:5432/userms?sslmode=disable")
-	
+
 	logDB("Connecting to PostgreSQL database...")
 	logDB("Database URL: %s", strings.ReplaceAll(databaseURL, "userms_password", "***"))
 
@@ -237,18 +237,18 @@ func (rw *responseWrapper) WriteHeader(code int) {
 func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		
+
 		session, _ := s.getSessionFromRequest(r)
 		userID := "anonymous"
 		if session != nil {
 			userID = session.Identity.Id[:8] + "..."
 		}
-		
+
 		logRequest(r.Method, r.URL.Path, userID)
-		
+
 		wrapper := &responseWrapper{ResponseWriter: w, statusCode: 200}
 		next.ServeHTTP(wrapper, r)
-		
+
 		duration := time.Since(start)
 		statusColor := ColorGreen
 		if wrapper.statusCode >= 400 {
@@ -256,8 +256,8 @@ func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 		} else if wrapper.statusCode >= 300 {
 			statusColor = ColorYellow
 		}
-		
-		log.Printf(ColorCyan+"[RESPONSE]"+ColorReset+" %s%d"+ColorReset+" | %s | %v", 
+
+		log.Printf(ColorCyan+"[RESPONSE]"+ColorReset+" %s%d"+ColorReset+" | %s | %v",
 			statusColor, wrapper.statusCode, r.URL.Path, duration)
 	})
 }
@@ -267,7 +267,7 @@ func (s *Server) setupRoutes() *mux.Router {
 	r.Use(s.loggingMiddleware)
 
 	api := r.PathPrefix("/api").Subrouter()
-	
+
 	// User endpoints
 	api.HandleFunc("/whoami", s.whoAmI).Methods("GET")
 	api.HandleFunc("/users", s.listUsers).Methods("GET")
@@ -279,7 +279,7 @@ func (s *Server) setupRoutes() *mux.Router {
 	api.HandleFunc("/organizations/{id}", s.getOrganization).Methods("GET")
 	api.HandleFunc("/organizations/{id}", s.updateOrganization).Methods("PUT")
 	api.HandleFunc("/organizations/{id}", s.deleteOrganization).Methods("DELETE")
-	
+
 	// Organization member endpoints
 	api.HandleFunc("/organizations/{id}/members", s.addMember).Methods("POST")
 	api.HandleFunc("/organizations/{id}/members", s.getMembers).Methods("GET")
@@ -312,7 +312,7 @@ func min(a, b int) int {
 
 func (s *Server) getSessionFromRequest(r *http.Request) (*client.Session, error) {
 	logAuth("=== SESSION VALIDATION START ===")
-	
+
 	// Log all cookies for debugging
 	logAuth("All cookies in request:")
 	for _, cookie := range r.Cookies() {
@@ -322,20 +322,20 @@ func (s *Server) getSessionFromRequest(r *http.Request) (*client.Session, error)
 			logAuth("  %s: %s", cookie.Name, cookie.Value)
 		}
 	}
-	
+
 	// Log headers for debugging
 	authHeader := r.Header.Get("Authorization")
 	if authHeader != "" {
 		logAuth("Authorization header found: %s", authHeader[:min(len(authHeader), 50)]+"...")
 	}
-	
+
 	var sessionToken string
-	
+
 	// Method 1: Try Authorization header (Bearer token)
 	if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
 		sessionToken = strings.TrimPrefix(authHeader, "Bearer ")
 		logAuth("Extracted Bearer token: %s...", sessionToken[:min(len(sessionToken), 20)])
-		
+
 		session, resp, err := s.kratosPublic.FrontendApi.ToSession(context.Background()).
 			XSessionToken(sessionToken).
 			Execute()
@@ -350,7 +350,7 @@ func (s *Server) getSessionFromRequest(r *http.Request) (*client.Session, error)
 			return session, nil
 		}
 	}
-	
+
 	// Method 2: Try session cookie
 	sessionCookie, err := r.Cookie("ory_kratos_session")
 	if err != nil {
@@ -360,7 +360,7 @@ func (s *Server) getSessionFromRequest(r *http.Request) (*client.Session, error)
 
 	sessionToken = sessionCookie.Value
 	logAuth("Found session cookie value: %s... (length: %d)", sessionToken[:min(len(sessionToken), 20)], len(sessionToken))
-	
+
 	// Try validation method 1: X-Session-Token
 	logAuth("Trying validation with X-Session-Token header...")
 	session, resp, err := s.kratosPublic.FrontendApi.ToSession(context.Background()).
@@ -371,7 +371,7 @@ func (s *Server) getSessionFromRequest(r *http.Request) (*client.Session, error)
 		logAuth("✅ Session validated via X-Session-Token for user: %s", session.Identity.Id)
 		return session, nil
 	}
-	
+
 	if err != nil {
 		logAuth("X-Session-Token validation failed: %v", err)
 	}
@@ -383,7 +383,7 @@ func (s *Server) getSessionFromRequest(r *http.Request) (*client.Session, error)
 	logAuth("Trying validation with Cookie header...")
 	cookieHeader := fmt.Sprintf("ory_kratos_session=%s", sessionToken)
 	logAuth("Cookie header: %s...", cookieHeader[:min(len(cookieHeader), 50)])
-	
+
 	session, resp, err = s.kratosPublic.FrontendApi.ToSession(context.Background()).
 		Cookie(cookieHeader).
 		Execute()
@@ -395,12 +395,12 @@ func (s *Server) getSessionFromRequest(r *http.Request) (*client.Session, error)
 		}
 		return nil, fmt.Errorf("invalid session from cookie: %v", err)
 	}
-	
+
 	if resp.StatusCode != 200 {
 		logAuth("❌ Cookie validation bad status: %d", resp.StatusCode)
 		return nil, fmt.Errorf("invalid session status: %d", resp.StatusCode)
 	}
-	
+
 	logAuth("✅ Session validated via Cookie for user: %s", session.Identity.Id)
 	logAuth("=== SESSION VALIDATION END ===")
 	return session, nil
@@ -408,9 +408,9 @@ func (s *Server) getSessionFromRequest(r *http.Request) (*client.Session, error)
 
 func (s *Server) debugAuth(w http.ResponseWriter, r *http.Request) {
 	logAuth("=== DEBUG AUTH ENDPOINT ===")
-	
+
 	session, err := s.getSessionFromRequest(r)
-	
+
 	response := map[string]interface{}{
 		"timestamp": time.Now(),
 		"method":    r.Method,
@@ -418,7 +418,7 @@ func (s *Server) debugAuth(w http.ResponseWriter, r *http.Request) {
 		"headers":   map[string][]string{},
 		"cookies":   map[string]string{},
 	}
-	
+
 	// Add headers (sanitized)
 	for name, values := range r.Header {
 		if name == "Authorization" && len(values) > 0 {
@@ -427,7 +427,7 @@ func (s *Server) debugAuth(w http.ResponseWriter, r *http.Request) {
 			response["headers"].(map[string][]string)[name] = values
 		}
 	}
-	
+
 	// Add cookies (sanitized)
 	for _, cookie := range r.Cookies() {
 		if cookie.Name == "ory_kratos_session" {
@@ -436,7 +436,7 @@ func (s *Server) debugAuth(w http.ResponseWriter, r *http.Request) {
 			response["cookies"].(map[string]string)[cookie.Name] = cookie.Value
 		}
 	}
-	
+
 	if err != nil {
 		response["auth_status"] = "failed"
 		response["auth_error"] = err.Error()
@@ -446,10 +446,10 @@ func (s *Server) debugAuth(w http.ResponseWriter, r *http.Request) {
 		response["user_id"] = session.Identity.Id
 		response["user_email"] = s.getEmailFromIdentity(session.Identity)
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
-	
+
 	logAuth("=== DEBUG AUTH ENDPOINT END ===")
 }
 
@@ -480,7 +480,7 @@ func (s *Server) mapIdentityToUser(identity client.Identity) User {
 
 func (s *Server) whoAmI(w http.ResponseWriter, r *http.Request) {
 	logAuth("Processing whoami request")
-	
+
 	session, err := s.getSessionFromRequest(r)
 	if err != nil {
 		logAuth("Unauthorized whoami request: %v", err)
@@ -490,7 +490,7 @@ func (s *Server) whoAmI(w http.ResponseWriter, r *http.Request) {
 
 	logAuth("Whoami request authenticated for user: %s", session.Identity.Id)
 	user := s.mapIdentityToUser(session.Identity)
-	
+
 	// Get user from database for additional info
 	dbUser, err := s.getUserFromDB(user.ID)
 	if err != nil {
@@ -505,7 +505,7 @@ func (s *Server) whoAmI(w http.ResponseWriter, r *http.Request) {
 		user.UpdatedAt = dbUser.UpdatedAt
 		user.LastLogin = dbUser.LastLogin
 	}
-	
+
 	orgs, err := s.getUserOrganizations(user.ID)
 	if err != nil {
 		logWarning("Error getting user organizations: %v", err)
@@ -521,7 +521,7 @@ func (s *Server) whoAmI(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 	logInfo("Processing list users request")
-	
+
 	identities, resp, err := s.kratosAdmin.IdentityApi.ListIdentities(context.Background()).Execute()
 	if err != nil || resp.StatusCode != 200 {
 		logError("Failed to fetch users from Kratos: %v (status: %d)", err, resp.StatusCode)
@@ -532,7 +532,7 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 	var users []User
 	for _, identity := range identities {
 		user := s.mapIdentityToUser(identity)
-		
+
 		// Get additional info from database
 		dbUser, err := s.getUserFromDB(user.ID)
 		if err == nil && dbUser != nil {
@@ -544,7 +544,7 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 			user.UpdatedAt = dbUser.UpdatedAt
 			user.LastLogin = dbUser.LastLogin
 		}
-		
+
 		users = append(users, user)
 	}
 
@@ -552,7 +552,7 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(users)
-	
+
 	logSuccess("Users list sent successfully")
 }
 
@@ -570,7 +570,7 @@ func (s *Server) getUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := s.mapIdentityToUser(*identity)
-	
+
 	// Get additional info from database
 	dbUser, err := s.getUserFromDB(user.ID)
 	if err == nil && dbUser != nil {
@@ -593,7 +593,7 @@ func (s *Server) getUser(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) createOrganization(w http.ResponseWriter, r *http.Request) {
 	logInfo("Processing organization creation request")
-	
+
 	session, err := s.getSessionFromRequest(r)
 	if err != nil {
 		logAuth("Unauthorized organization creation: %v", err)
@@ -681,13 +681,13 @@ func (s *Server) createOrganization(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(org)
-	
+
 	logSuccess("Organization '%s' created successfully with ID: %s", req.Name, orgID)
 }
 
 func (s *Server) listOrganizations(w http.ResponseWriter, r *http.Request) {
 	logInfo("Processing list organizations request")
-	
+
 	session, err := s.getSessionFromRequest(r)
 	if err != nil {
 		logAuth("Unauthorized list organizations: %v", err)
@@ -717,14 +717,14 @@ func (s *Server) listOrganizations(w http.ResponseWriter, r *http.Request) {
 		var role string
 		var dataJSON []byte
 		var domainID, orgID, ownerID sql.NullString
-		
-		err := rows.Scan(&org.ID, &domainID, &orgID, &org.OrgType, &org.Name, &org.Description, 
+
+		err := rows.Scan(&org.ID, &domainID, &orgID, &org.OrgType, &org.Name, &org.Description,
 			&ownerID, &dataJSON, &org.CreatedAt, &org.UpdatedAt, &role)
 		if err != nil {
 			logWarning("Error scanning organization row: %v", err)
 			continue
 		}
-		
+
 		if domainID.Valid {
 			org.DomainID = &domainID.String
 		}
@@ -734,13 +734,13 @@ func (s *Server) listOrganizations(w http.ResponseWriter, r *http.Request) {
 		if ownerID.Valid {
 			org.OwnerID = &ownerID.String
 		}
-		
+
 		if len(dataJSON) > 0 {
 			json.Unmarshal(dataJSON, &org.Data)
 		} else {
 			org.Data = make(map[string]interface{})
 		}
-		
+
 		organizations = append(organizations, org)
 	}
 
@@ -748,7 +748,7 @@ func (s *Server) listOrganizations(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(organizations)
-	
+
 	logSuccess("Organizations list sent successfully")
 }
 
@@ -774,12 +774,12 @@ func (s *Server) getOrganization(w http.ResponseWriter, r *http.Request) {
 	var org Organization
 	var dataJSON []byte
 	var domainID, parentOrgID, ownerID sql.NullString
-	
+
 	err = s.db.QueryRow(`
 		SELECT id, domain_id, org_id, org_type, name, description, owner_id, data, created_at, updated_at
 		FROM organizations WHERE id = $1`,
 		orgID,
-	).Scan(&org.ID, &domainID, &parentOrgID, &org.OrgType, &org.Name, &org.Description, 
+	).Scan(&org.ID, &domainID, &parentOrgID, &org.OrgType, &org.Name, &org.Description,
 		&ownerID, &dataJSON, &org.CreatedAt, &org.UpdatedAt)
 
 	if err != nil {
@@ -802,7 +802,7 @@ func (s *Server) getOrganization(w http.ResponseWriter, r *http.Request) {
 	if ownerID.Valid {
 		org.OwnerID = &ownerID.String
 	}
-	
+
 	if len(dataJSON) > 0 {
 		json.Unmarshal(dataJSON, &org.Data)
 	} else {
@@ -819,13 +819,13 @@ func (s *Server) getOrganization(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(org)
-	
+
 	logSuccess("Organization %s details sent successfully", orgID)
 }
 
 func (s *Server) updateOrganization(w http.ResponseWriter, r *http.Request) {
 	logInfo("Processing organization update request")
-	
+
 	session, err := s.getSessionFromRequest(r)
 	if err != nil {
 		logAuth("Unauthorized organization update: %v", err)
@@ -890,12 +890,12 @@ func (s *Server) updateOrganization(w http.ResponseWriter, r *http.Request) {
 	var org Organization
 	var dataJSONResult []byte
 	var domainID, parentOrgID, ownerID sql.NullString
-	
+
 	err = s.db.QueryRow(`
 		SELECT id, domain_id, org_id, org_type, name, description, owner_id, data, created_at, updated_at
 		FROM organizations WHERE id = $1`,
 		orgID,
-	).Scan(&org.ID, &domainID, &parentOrgID, &org.OrgType, &org.Name, &org.Description, 
+	).Scan(&org.ID, &domainID, &parentOrgID, &org.OrgType, &org.Name, &org.Description,
 		&ownerID, &dataJSONResult, &org.CreatedAt, &org.UpdatedAt)
 
 	if err != nil {
@@ -913,7 +913,7 @@ func (s *Server) updateOrganization(w http.ResponseWriter, r *http.Request) {
 	if ownerID.Valid {
 		org.OwnerID = &ownerID.String
 	}
-	
+
 	if len(dataJSONResult) > 0 {
 		json.Unmarshal(dataJSONResult, &org.Data)
 	} else {
@@ -922,13 +922,13 @@ func (s *Server) updateOrganization(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(org)
-	
+
 	logSuccess("Organization %s updated successfully to '%s'", orgID, req.Name)
 }
 
 func (s *Server) deleteOrganization(w http.ResponseWriter, r *http.Request) {
 	logInfo("Processing organization deletion request")
-	
+
 	session, err := s.getSessionFromRequest(r)
 	if err != nil {
 		logAuth("Unauthorized organization deletion: %v", err)
@@ -1004,7 +1004,7 @@ func (s *Server) deleteOrganization(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"message": "Organization deleted successfully"})
-	
+
 	logSuccess("Organization %s deleted successfully", orgID)
 }
 
@@ -1082,7 +1082,7 @@ func (s *Server) addMember(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Member added successfully"})
-	
+
 	logSuccess("Member %s added successfully to organization %s", req.Email, orgID)
 }
 
@@ -1116,13 +1116,13 @@ func (s *Server) getMembers(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(members)
-	
+
 	logSuccess("Members list sent for organization %s", orgID)
 }
 
 func (s *Server) removeMember(w http.ResponseWriter, r *http.Request) {
 	logInfo("Processing remove member request")
-	
+
 	session, err := s.getSessionFromRequest(r)
 	if err != nil {
 		logAuth("Unauthorized remove member: %v", err)
@@ -1187,13 +1187,13 @@ func (s *Server) removeMember(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"message": "Member removed successfully"})
-	
+
 	logSuccess("Member %s removed successfully from organization %s", userID, orgID)
 }
 
 func (s *Server) updateMemberRole(w http.ResponseWriter, r *http.Request) {
 	logInfo("Processing update member role request")
-	
+
 	session, err := s.getSessionFromRequest(r)
 	if err != nil {
 		logAuth("Unauthorized update member role: %v", err)
@@ -1295,7 +1295,7 @@ func (s *Server) updateMemberRole(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(member)
-	
+
 	logSuccess("Member %s role updated successfully to %s in organization %s", userID, req.Role, orgID)
 }
 
@@ -1322,7 +1322,7 @@ func (s *Server) getOrgMembers(orgID string) ([]Member, error) {
 			logWarning("Error scanning member row: %v", err)
 			continue
 		}
-		
+
 		if email.Valid {
 			member.Email = email.String
 		}
@@ -1368,24 +1368,24 @@ func (s *Server) getUserOrganizations(userID string) ([]OrgMember, error) {
 func (s *Server) getUserFromDB(userID string) (*User, error) {
 	var user User
 	var lastLogin sql.NullTime
-	
+
 	err := s.db.QueryRow(`
 		SELECT id, email, first_name, last_name, time_zone, ui_mode, created_at, updated_at, last_login
 		FROM users WHERE id = $1
-	`, userID).Scan(&user.ID, &user.Email, &user.FirstName, &user.LastName, &user.TimeZone, 
+	`, userID).Scan(&user.ID, &user.Email, &user.FirstName, &user.LastName, &user.TimeZone,
 		&user.UIMode, &user.CreatedAt, &user.UpdatedAt, &lastLogin)
-	
+
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil // User not found in database
 		}
 		return nil, err
 	}
-	
+
 	if lastLogin.Valid {
 		user.LastLogin = &lastLogin.Time
 	}
-	
+
 	return &user, nil
 }
 
@@ -1406,11 +1406,11 @@ func (s *Server) isOrgAdmin(userID string, orgID string) bool {
 		WHERE user_id = $1 AND organization_id = $2 AND role IN ('admin')`,
 		userID, orgID,
 	).Scan(&count)
-	
+
 	if err == nil && count > 0 {
 		return true
 	}
-	
+
 	// Also check if user is the owner
 	var ownerID sql.NullString
 	err = s.db.QueryRow("SELECT owner_id FROM organizations WHERE id = $1", orgID).Scan(&ownerID)
@@ -1419,9 +1419,9 @@ func (s *Server) isOrgAdmin(userID string, orgID string) bool {
 
 func (s *Server) saveUserProfile(identity client.Identity) {
 	user := s.mapIdentityToUser(identity)
-	
+
 	logDB("Saving user profile for: %s", user.Email)
-	
+
 	_, err := s.db.Exec(`
 		INSERT INTO users (id, email, first_name, last_name, last_login)
 		VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
@@ -1433,7 +1433,7 @@ func (s *Server) saveUserProfile(identity client.Identity) {
 			last_login = CURRENT_TIMESTAMP,
 			updated_at = CURRENT_TIMESTAMP
 	`, user.ID, user.Email, user.FirstName, user.LastName)
-	
+
 	if err != nil {
 		logError("Error saving user profile: %v", err)
 	} else {
@@ -1445,7 +1445,7 @@ func (s *Server) saveUserProfile(identity client.Identity) {
 
 func (s *Server) handleAfterRegistration(w http.ResponseWriter, r *http.Request) {
 	logInfo("Processing registration webhook")
-	
+
 	var payload WebhookPayload
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		logError("Invalid webhook payload: %v", err)
@@ -1454,7 +1454,7 @@ func (s *Server) handleAfterRegistration(w http.ResponseWriter, r *http.Request)
 	}
 
 	logSuccess("New user registered: %s (%s)", payload.Identity.Id, s.getEmailFromIdentity(payload.Identity))
-	
+
 	s.saveUserProfile(payload.Identity)
 
 	w.WriteHeader(http.StatusOK)
@@ -1463,7 +1463,7 @@ func (s *Server) handleAfterRegistration(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) handleAfterLogin(w http.ResponseWriter, r *http.Request) {
 	logInfo("Processing login webhook")
-	
+
 	var payload WebhookPayload
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		logError("Invalid webhook payload: %v", err)
@@ -1472,7 +1472,7 @@ func (s *Server) handleAfterLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	logSuccess("User logged in: %s (%s)", payload.Identity.Id, s.getEmailFromIdentity(payload.Identity))
-	
+
 	s.saveUserProfile(payload.Identity)
 
 	w.WriteHeader(http.StatusOK)
@@ -1492,7 +1492,7 @@ func (s *Server) getEmailFromIdentity(identity client.Identity) string {
 
 func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
 	logAuth("Processing get session request")
-	
+
 	session, err := s.getSessionFromRequest(r)
 	if err != nil {
 		logAuth("No valid session found: %v", err)
@@ -1508,9 +1508,9 @@ func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	logAuth("Processing logout request")
-	
+
 	var sessionToken string
-	
+
 	authHeader := r.Header.Get("Authorization")
 	if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
 		sessionToken = strings.TrimPrefix(authHeader, "Bearer ")
@@ -1531,13 +1531,13 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	session, resp, err := s.kratosPublic.FrontendApi.ToSession(context.Background()).
 		XSessionToken(sessionToken).
 		Execute()
-	
+
 	if err != nil || resp.StatusCode != 200 {
 		logWarning("Could not get session details for logout: %v (status: %d)", err, resp.StatusCode)
 		// Session might already be invalid, continue with clearing cookie
 	} else {
 		logAuth("Found session ID: %s", session.Id)
-		
+
 		// Use the session ID (not token) to disable the session
 		_, err = s.kratosAdmin.IdentityApi.DisableSession(context.Background(), session.Id).Execute()
 		if err != nil {
@@ -1558,13 +1558,13 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Logged out successfully"})
-	
+
 	logSuccess("Logout completed successfully")
 }
 
 func (s *Server) healthCheck(w http.ResponseWriter, r *http.Request) {
 	logInfo("Health check requested")
-	
+
 	// Check database connectivity
 	if err := s.db.Ping(); err != nil {
 		logError("Database health check failed: %v", err)
@@ -1575,13 +1575,13 @@ func (s *Server) healthCheck(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"status":   "healthy",
 		"database": "connected",
 	})
-	
+
 	logSuccess("Health check: OK")
 }
 
@@ -1598,9 +1598,10 @@ func main() {
 
 	corsHandler := handlers.CORS(
 		handlers.AllowedOrigins([]string{
-			"http://localhost:3000", 
+			"http://localhost:3000",
+			"http://localhost:3001", // Frontend development server
 			"http://localhost:8080",
-			"file://",  // For local HTML files
+			"file://", // For local HTML files
 		}),
 		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
 		handlers.AllowedHeaders([]string{"Content-Type", "Authorization", "Cookie"}),
@@ -1614,8 +1615,8 @@ func main() {
 	logInfo("  Kratos Public URL: %s", getEnv("KRATOS_PUBLIC_URL", "http://localhost:4433"))
 	logInfo("  Kratos Admin URL: %s", getEnv("KRATOS_ADMIN_URL", "http://localhost:4434"))
 	logInfo("  Database URL: %s", strings.ReplaceAll(getEnv("DATABASE_URL", "postgres://userms:userms_password@localhost:5432/userms?sslmode=disable"), "userms_password", "***"))
-	
-	fmt.Printf("\n%s%s🌟 Server ready! Listening on:%s http://localhost:%s %s\n\n", 
+
+	fmt.Printf("\n%s%s🌟 Server ready! Listening on:%s http://localhost:%s %s\n\n",
 		ColorBold, ColorGreen, ColorReset, port, ColorGreen)
 	fmt.Printf("%sEndpoints available:%s\n", ColorCyan, ColorReset)
 	fmt.Printf("  📊 Health: http://localhost:%s/health\n", port)
@@ -1624,7 +1625,7 @@ func main() {
 	fmt.Printf("  🔐 Auth:   Bearer token or Cookie authentication\n")
 	fmt.Printf("  🔍 Debug:  http://localhost:%s/api/debug/auth\n", port)
 	fmt.Printf("%s\n", ColorReset)
-	
+
 	logSuccess("Server starting on port %s", port)
 	log.Fatal(http.ListenAndServe(":"+port, corsHandler))
 }

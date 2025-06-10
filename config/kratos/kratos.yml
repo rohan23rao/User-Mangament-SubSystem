@@ -7,6 +7,7 @@ serve:
       enabled: true
       allowed_origins:
         - http://localhost:3000
+        - http://localhost:3001
         - http://localhost:8080
       allowed_methods:
         - POST
@@ -14,21 +15,28 @@ serve:
         - PUT
         - PATCH
         - DELETE
+        - OPTIONS
       allowed_headers:
         - Authorization
         - Cookie
         - Content-Type
+        - X-Requested-With
+        - Accept
+        - Origin
       exposed_headers:
         - Content-Type
         - Set-Cookie
+      allow_credentials: true
   admin:
     base_url: http://localhost:4434/
 
 selfservice:
-  default_browser_return_url: http://localhost:3000/
+  default_browser_return_url: http://localhost:3001/
   allowed_return_urls:
     - http://localhost:3000
+    - http://localhost:3001
     - http://localhost:3000/auth/callback
+    - http://localhost:3001/auth/callback
 
   methods:
     password:
@@ -54,34 +62,37 @@ selfservice:
                 given_name:
                   essential: true
                 family_name: null
+    code:
+      enabled: true
 
   flows:
     error:
-      ui_url: http://localhost:3000/error
+      ui_url: http://localhost:3001/error
 
     settings:
-      ui_url: http://localhost:3000/settings
+      ui_url: http://localhost:3001/settings
       privileged_session_max_age: 15m
       required_aal: highest_available
 
     recovery:
       enabled: true
-      ui_url: http://localhost:3000/recovery
+      ui_url: http://localhost:3001/recovery
       use: code
 
     verification:
       enabled: true
-      ui_url: http://localhost:3000/verification
+      ui_url: http://localhost:3001/verification
       use: code
+      lifespan: 30m
       after:
-        default_browser_return_url: http://localhost:3000/
+        default_browser_return_url: http://localhost:3001/
 
     logout:
       after:
-        default_browser_return_url: http://localhost:3000/login
+        default_browser_return_url: http://localhost:3001/login
 
     login:
-      ui_url: http://localhost:3000/login
+      ui_url: http://localhost:3001/login
       lifespan: 10m
       after:
         hooks:
@@ -93,7 +104,7 @@ selfservice:
 
     registration:
       lifespan: 10m
-      ui_url: http://localhost:3000/registration
+      ui_url: http://localhost:3001/register
       after:
         password:
           hooks:

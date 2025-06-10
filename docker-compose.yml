@@ -89,18 +89,27 @@ services:
     networks:
       - intranet
 
-  # ADD THIS NEW SERVICE HERE:
-  frontend-test:
-    image: nginx:alpine
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
     ports:
-      - "8080:80"
+      - "3001:3001"
+    environment:
+      - REACT_APP_API_URL=http://localhost:3000
+      - REACT_APP_KRATOS_PUBLIC_URL=http://localhost:4433
+      - PORT=3001
+      - GENERATE_SOURCEMAP=false
+      - WATCHPACK_POLLING=true
     volumes:
-      - ./index.html:/usr/share/nginx/html/index.html:ro
+      - ./frontend:/app
+      - /app/node_modules  # Exclude node_modules from volume mount
     networks:
       - intranet
     depends_on:
       - kratos
       - backend
+    restart: unless-stopped
 
 networks:
   intranet:
