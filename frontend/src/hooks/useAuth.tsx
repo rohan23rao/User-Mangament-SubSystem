@@ -9,6 +9,7 @@ interface AuthContextType {
   session: KratosSession | null;
   loading: boolean;
   isAuthenticated: boolean;
+  canCreateOrganizations: () => boolean;
   login: (email: string, password: string) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
   register: (email: string, password: string, firstName: string, lastName: string) => Promise<void>;
@@ -308,11 +309,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
+  const canCreateOrganizations = (): boolean => {
+    if (!user) return false;
+    
+    // User can create organizations if they are already an admin of at least one organization
+    // OR if they are the only user in the system (bootstrap scenario)
+    const hasAdminRole = user.organizations?.some(org => org.role === 'admin') || false;
+    
+    // For bootstrap scenario, we check if user has no organizations
+    // This indicates they might be the first user who should be able to create the first org
+    const hasNoOrganizations = !user.organizations || user.organizations.length === 0;
+    
+    return hasAdminRole || hasNoOrganizations;
+  };
+
   const value: AuthContextType = {
     user,
     session,
     loading,
     isAuthenticated,
+    canCreateOrganizations,
     login,
     loginWithGoogle,
     register,

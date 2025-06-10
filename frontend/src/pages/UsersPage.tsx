@@ -54,9 +54,8 @@ export default function UsersPage() {
   );
 
   const getVerificationStatus = (user: User) => {
-    // Check if any verifiable address is verified
-    const isVerified = user.verifiable_addresses?.some(addr => addr.verified) || false;
-    return isVerified;
+    // Use the simplified verified field from backend
+    return user.verified || false;
   };
 
   const getUserRoles = (user: User) => {
@@ -68,7 +67,7 @@ export default function UsersPage() {
 
   const getUserHighestRole = (user: User) => {
     if (!user.organizations || user.organizations.length === 0) {
-      return 'member';
+      return 'no-orgs';
     }
     
     const roles = user.organizations.map(org => org.role);
@@ -81,6 +80,7 @@ export default function UsersPage() {
     switch (role) {
       case 'admin': return <IconCrown size="1rem" />;
       case 'manager': return <IconShield size="1rem" />;
+      case 'no-orgs': return <IconUser size="1rem" />;
       default: return <IconUser size="1rem" />;
     }
   };
@@ -89,6 +89,7 @@ export default function UsersPage() {
     switch (role) {
       case 'admin': return 'red';
       case 'manager': return 'orange';
+      case 'no-orgs': return 'gray';
       default: return 'blue';
     }
   };
@@ -185,7 +186,7 @@ export default function UsersPage() {
                           color={getRoleColor(highestRole)}
                           variant="light"
                         >
-                          {highestRole}
+                          {highestRole === 'no-orgs' ? 'No Organizations' : highestRole}
                         </Badge>
                       </Table.Td>
                       

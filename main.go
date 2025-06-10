@@ -38,17 +38,34 @@ type Server struct {
 }
 
 type User struct {
-	ID            string      `json:"id"`
-	Email         string      `json:"email"`
-	FirstName     string      `json:"first_name"`
-	LastName      string      `json:"last_name"`
-	TimeZone      string      `json:"time_zone"`
-	UIMode        string      `json:"ui_mode"`
-	Traits        interface{} `json:"traits"`
-	Organizations []OrgMember `json:"organizations,omitempty"`
-	CreatedAt     time.Time   `json:"created_at"`
-	UpdatedAt     time.Time   `json:"updated_at"`
-	LastLogin     *time.Time  `json:"last_login"`
+	ID                  string              `json:"id"`
+	Email               string              `json:"email"`
+	FirstName           string              `json:"first_name"`
+	LastName            string              `json:"last_name"`
+	TimeZone            string              `json:"time_zone"`
+	UIMode              string              `json:"ui_mode"`
+	Traits              interface{}         `json:"traits"`
+	Organizations       []OrgMember         `json:"organizations"`
+	VerifiableAddresses []VerifiableAddress `json:"verifiable_addresses,omitempty"`
+	RecoveryAddresses   []RecoveryAddress   `json:"recovery_addresses,omitempty"`
+	Verified            bool                `json:"verified"`
+	CreatedAt           time.Time           `json:"created_at"`
+	UpdatedAt           time.Time           `json:"updated_at"`
+	LastLogin           *time.Time          `json:"last_login"`
+}
+
+type VerifiableAddress struct {
+	ID       string `json:"id"`
+	Value    string `json:"value"`
+	Verified bool   `json:"verified"`
+	Via      string `json:"via"`
+	Status   string `json:"status"`
+}
+
+type RecoveryAddress struct {
+	ID    string `json:"id"`
+	Value string `json:"value"`
+	Via   string `json:"via"`
 }
 
 type Organization struct {
@@ -273,18 +290,20 @@ func (s *Server) setupRoutes() *mux.Router {
 	api.HandleFunc("/users", s.listUsers).Methods("GET")
 	api.HandleFunc("/users/{id}", s.getUser).Methods("GET")
 
-	// Organization endpoints
-	api.HandleFunc("/organizations", s.createOrganization).Methods("POST")
-	api.HandleFunc("/organizations", s.listOrganizations).Methods("GET")
-	api.HandleFunc("/organizations/{id}", s.getOrganization).Methods("GET")
-	api.HandleFunc("/organizations/{id}", s.updateOrganization).Methods("PUT")
-	api.HandleFunc("/organizations/{id}", s.deleteOrganization).Methods("DELETE")
+	// Organization endpoints (protected by verification)
+	orgRouter := api.PathPrefix("/organizations").Subrouter()
+	orgRouter.Use(s.requireVerifiedUser)
+	orgRouter.HandleFunc("", s.createOrganization).Methods("POST")
+	orgRouter.HandleFunc("", s.listOrganizations).Methods("GET")
+	orgRouter.HandleFunc("/{id}", s.getOrganization).Methods("GET")
+	orgRouter.HandleFunc("/{id}", s.updateOrganization).Methods("PUT")
+	orgRouter.HandleFunc("/{id}", s.deleteOrganization).Methods("DELETE")
 
-	// Organization member endpoints
-	api.HandleFunc("/organizations/{id}/members", s.addMember).Methods("POST")
-	api.HandleFunc("/organizations/{id}/members", s.getMembers).Methods("GET")
-	api.HandleFunc("/organizations/{id}/members/{userId}", s.removeMember).Methods("DELETE")
-	api.HandleFunc("/organizations/{id}/members/{userId}/role", s.updateMemberRole).Methods("PUT")
+	// Organization member endpoints (protected by verification)
+	orgRouter.HandleFunc("/{id}/members", s.addMember).Methods("POST")
+	orgRouter.HandleFunc("/{id}/members", s.getMembers).Methods("GET")
+	orgRouter.HandleFunc("/{id}/members/{userId}", s.removeMember).Methods("DELETE")
+	orgRouter.HandleFunc("/{id}/members/{userId}/role", s.updateMemberRole).Methods("PUT")
 
 	// Debug endpoint
 	api.HandleFunc("/debug/auth", s.debugAuth).Methods("GET")
@@ -308,6 +327,31 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func (s *Server) requireVerifiedUser(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		session, err := s.getSessionFromRequest(r)
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Check if user is verified
+		if !s.isEmailVerified(session.Identity) {
+			logAuth("Unverified user %s attempting to access protected resource", session.Identity.Id)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"error":   "Email verification required",
+				"code":    "EMAIL_NOT_VERIFIED",
+				"message": "Please verify your email address before accessing this resource",
+			})
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) getSessionFromRequest(r *http.Request) (*client.Session, error) {
@@ -453,10 +497,63 @@ func (s *Server) debugAuth(w http.ResponseWriter, r *http.Request) {
 	logAuth("=== DEBUG AUTH ENDPOINT END ===")
 }
 
+func (s *Server) isEmailVerified(identity client.Identity) bool {
+	logInfo("Checking verification for user %s", identity.Id)
+
+	// Check if user authenticated via Google OAuth
+	// Google OAuth users are automatically verified
+	if s.isGoogleOAuthUser(identity) {
+		logInfo("User %s is verified via Google OAuth", identity.Id)
+		return true
+	}
+
+	if identity.VerifiableAddresses == nil {
+		logInfo("User %s has no verifiable addresses", identity.Id)
+		return false
+	}
+
+	logInfo("User %s has %d verifiable addresses", identity.Id, len(identity.VerifiableAddresses))
+	for i, addr := range identity.VerifiableAddresses {
+		logInfo("  Address %d: Via=%s, Verified=%t, Value=%s", i, addr.Via, addr.Verified, addr.Value)
+		if addr.Via == "email" && addr.Verified {
+			logInfo("User %s is verified via email", identity.Id)
+			return true
+		}
+	}
+	logInfo("User %s is not verified", identity.Id)
+	return false
+}
+
+// Check if user authenticated via Google OAuth
+func (s *Server) isGoogleOAuthUser(identity client.Identity) bool {
+	// Check if the user has OAuth credentials from Google
+	if identity.Credentials != nil {
+		credentials := *identity.Credentials
+		if oidcCreds, ok := credentials["oidc"]; ok {
+			if oidcCreds.Type != nil && *oidcCreds.Type == "oidc" && oidcCreds.Identifiers != nil {
+				for _, identifier := range oidcCreds.Identifiers {
+					if strings.HasPrefix(identifier, "google:") {
+						logInfo("User %s authenticated via Google OAuth: %s", identity.Id, identifier)
+						return true
+					}
+				}
+			}
+		}
+	}
+
+	// Having a Gmail address or a verified email doesn't mean the user authenticated via Google OAuth
+	return false
+}
+
 func (s *Server) mapIdentityToUser(identity client.Identity) User {
+	verified := s.isEmailVerified(identity)
+	logInfo("Mapping user %s, verified status: %t", identity.Id, verified)
+
 	user := User{
-		ID:     identity.Id,
-		Traits: identity.Traits,
+		ID:            identity.Id,
+		Traits:        identity.Traits,
+		Verified:      verified,
+		Organizations: []OrgMember{}, // Initialize as empty slice literal
 	}
 
 	if traits, ok := identity.Traits.(map[string]interface{}); ok {
@@ -472,6 +569,13 @@ func (s *Server) mapIdentityToUser(identity client.Identity) User {
 			}
 		}
 	}
+
+	// TODO: Map verifiable addresses (Kratos client types need investigation)
+	// if identity.VerifiableAddresses != nil {
+	//	 for _, addr := range identity.VerifiableAddresses {
+	//		 user.VerifiableAddresses = append(user.VerifiableAddresses, VerifiableAddress{...})
+	//	 }
+	// }
 
 	return user
 }
@@ -529,13 +633,17 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logInfo("Found %d identities from Kratos", len(identities))
+
 	var users []User
-	for _, identity := range identities {
+	for i, identity := range identities {
+		logInfo("Processing identity %d: %s", i, identity.Id)
 		user := s.mapIdentityToUser(identity)
 
 		// Get additional info from database
 		dbUser, err := s.getUserFromDB(user.ID)
 		if err == nil && dbUser != nil {
+			logInfo("Merging DB data for user %s, preserving verified=%t", user.Email, user.Verified)
 			user.FirstName = dbUser.FirstName
 			user.LastName = dbUser.LastName
 			user.TimeZone = dbUser.TimeZone
@@ -543,8 +651,20 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 			user.CreatedAt = dbUser.CreatedAt
 			user.UpdatedAt = dbUser.UpdatedAt
 			user.LastLogin = dbUser.LastLogin
+			logInfo("After DB merge for user %s, verified=%t", user.Email, user.Verified)
 		}
 
+		// Get user organizations
+		orgs, err := s.getUserOrganizations(user.ID)
+		if err == nil {
+			user.Organizations = orgs
+			logInfo("User %s has %d organizations", user.Email, len(orgs))
+		} else {
+			logWarning("Failed to get organizations for user %s: %v", user.Email, err)
+			user.Organizations = []OrgMember{} // Ensure empty slice on error
+		}
+
+		logInfo("Final user object for %s: verified=%t, org_count=%d", user.Email, user.Verified, len(user.Organizations))
 		users = append(users, user)
 	}
 
@@ -598,6 +718,25 @@ func (s *Server) createOrganization(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		logAuth("Unauthorized organization creation: %v", err)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Check if user is admin of any existing organization
+	// Allow creation if there are no admins at all (bootstrap scenario)
+	isUserAdmin := s.isAdminOfAnyOrg(session.Identity.Id)
+	systemHasAdmins := s.hasAnyAdmins()
+
+	logAuth("Admin check - User %s: isAdmin=%t, systemHasAdmins=%t", session.Identity.Id, isUserAdmin, systemHasAdmins)
+
+	if !isUserAdmin && systemHasAdmins {
+		logAuth("User %s not authorized to create organizations - must be admin of existing organization", session.Identity.Id)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":   "Permission denied",
+			"code":    "ADMIN_REQUIRED",
+			"message": "Only existing organization administrators can create new organizations",
+		})
 		return
 	}
 
@@ -1415,6 +1554,43 @@ func (s *Server) isOrgAdmin(userID string, orgID string) bool {
 	var ownerID sql.NullString
 	err = s.db.QueryRow("SELECT owner_id FROM organizations WHERE id = $1", orgID).Scan(&ownerID)
 	return err == nil && ownerID.Valid && ownerID.String == userID
+}
+
+func (s *Server) isAdminOfAnyOrg(userID string) bool {
+	// Check if user has admin role in any organization
+	var adminCount int
+	err := s.db.QueryRow(`
+		SELECT COUNT(*) FROM user_organization_links 
+		WHERE user_id = $1 AND role = 'admin'`,
+		userID,
+	).Scan(&adminCount)
+
+	if err == nil && adminCount > 0 {
+		return true
+	}
+
+	// Also check if user owns any organization
+	var ownerCount int
+	err = s.db.QueryRow(`
+		SELECT COUNT(*) FROM organizations 
+		WHERE owner_id = $1`,
+		userID,
+	).Scan(&ownerCount)
+
+	return err == nil && ownerCount > 0
+}
+
+func (s *Server) hasAnyAdmins() bool {
+	var count int
+	err := s.db.QueryRow(`
+		SELECT COUNT(*) FROM (
+			SELECT user_id FROM user_organization_links WHERE role = 'admin'
+			UNION
+			SELECT owner_id FROM organizations WHERE owner_id IS NOT NULL
+		) as admins`,
+	).Scan(&count)
+
+	return err == nil && count > 0
 }
 
 func (s *Server) saveUserProfile(identity client.Identity) {

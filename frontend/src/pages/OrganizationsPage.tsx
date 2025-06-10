@@ -151,9 +151,15 @@ export default function OrganizationsPage() {
   };
 
   const canCreateOrganizations = () => {
-    // For now, allow any authenticated user to create organizations
-    // In production, you might want to restrict this to specific roles
-    return !!user;
+    // Only users who are already admins of at least one organization can create new ones
+    // OR if there are no organizations at all (bootstrap scenario)
+    const hasAdminRole = user?.organizations?.some(org => org.role === 'admin') || false;
+    
+    // For bootstrap scenario, we need to check if there are any organizations in the system
+    // not just the ones the user belongs to
+    const noOrganizationsExist = organizations.length === 0 && (!user?.organizations || user.organizations.length === 0);
+    
+    return hasAdminRole || noOrganizationsExist;
   };
 
   const isUserAdmin = () => {
@@ -261,7 +267,7 @@ export default function OrganizationsPage() {
                       leftSection={<IconEye size="1rem" />}
                       onClick={() => navigate(`/organizations/${orgMember.org_id}`)}
                     >
-                      View Organization
+                      View Details
                     </Button>
                   </Card>
                 </Grid.Col>
@@ -283,12 +289,14 @@ export default function OrganizationsPage() {
             Create and manage organizations
           </Text>
         </div>
-        <Button
-          leftSection={<IconPlus size="1rem" />}
-          onClick={() => setCreateModalOpened(true)}
-        >
-          Create Organization
-        </Button>
+        {canCreateOrganizations() && (
+          <Button
+            leftSection={<IconPlus size="1rem" />}
+            onClick={() => setCreateModalOpened(true)}
+          >
+            Create Organization
+          </Button>
+        )}
       </Group>
 
       {loading ? (
@@ -307,13 +315,15 @@ export default function OrganizationsPage() {
             <Text c="dimmed" ta="center" size="lg">
               Create your first organization to get started
             </Text>
-            <Button
-              leftSection={<IconPlus size="1rem" />}
-              size="lg"
-              onClick={() => setCreateModalOpened(true)}
-            >
-              Create Organization
-            </Button>
+            {canCreateOrganizations() && (
+              <Button
+                leftSection={<IconPlus size="1rem" />}
+                size="lg"
+                onClick={() => setCreateModalOpened(true)}
+              >
+                Create Organization
+              </Button>
+            )}
           </Stack>
         </Paper>
       ) : (
@@ -405,12 +415,13 @@ export default function OrganizationsPage() {
       )}
 
       {/* Create Organization Modal */}
-      <Modal
-        opened={createModalOpened}
-        onClose={() => setCreateModalOpened(false)}
-        title="Create New Organization"
-        size="md"
-      >
+      {canCreateOrganizations() && (
+        <Modal
+          opened={createModalOpened}
+          onClose={() => setCreateModalOpened(false)}
+          title="Create New Organization"
+          size="md"
+        >
         <form onSubmit={form.onSubmit(handleCreateOrganization)}>
           <Stack gap="md">
             <TextInput
@@ -454,7 +465,8 @@ export default function OrganizationsPage() {
             </Group>
           </Stack>
         </form>
-      </Modal>
+        </Modal>
+      )}
     </Container>
   );
 

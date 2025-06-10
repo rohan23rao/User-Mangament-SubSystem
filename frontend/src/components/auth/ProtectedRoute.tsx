@@ -9,7 +9,7 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, adminOnly = false }: ProtectedRouteProps) {
-  const { isAuthenticated, loading, user } = useAuth();
+  const { isAuthenticated, loading, canCreateOrganizations } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -25,8 +25,8 @@ export function ProtectedRoute({ children, adminOnly = false }: ProtectedRoutePr
   }
 
   if (adminOnly) {
-    const isAdmin = user?.organizations?.some(org => org.role === 'admin') || false;
-    if (!isAdmin) {
+    // Use canCreateOrganizations which includes bootstrap logic
+    if (!canCreateOrganizations()) {
       return <Navigate to="/dashboard" replace />;
     }
   }

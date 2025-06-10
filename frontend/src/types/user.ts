@@ -16,7 +16,7 @@ export interface User {
   created_at: string;
   updated_at: string;
   last_login?: string;
-  verified?: boolean;
+  verified: boolean;
   recovery_addresses?: RecoveryAddress[];
   verifiable_addresses?: VerifiableAddress[];
 }

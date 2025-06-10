@@ -78,6 +78,7 @@ export default function VerificationPage() {
   useEffect(() => {
     const initializeFlow = async () => {
       const flowId = searchParams.get('flow');
+      const codeFromUrl = searchParams.get('code');
       
       if (flowId) {
         // Fetch existing flow
@@ -95,6 +96,15 @@ export default function VerificationPage() {
             const emailNode = flow.ui?.nodes?.find((node: any) => node.attributes?.name === 'email');
             if (emailNode?.attributes?.value) {
               form.setValues({ email: emailNode.attributes.value });
+            }
+            
+            // If code is present in URL, auto-fill and submit
+            if (codeFromUrl) {
+              form.setValues({ code: codeFromUrl });
+              // Wait for flow to be set before submitting
+              setTimeout(() => {
+                handleSubmit({ code: codeFromUrl });
+              }, 500);
             }
           } else if (response.status === 410) {
             // Flow expired, create a new one
@@ -286,10 +296,10 @@ export default function VerificationPage() {
       <Title ta="center" order={1} mb="md">
         Verify Your Email
       </Title>
-      <Text c="dimmed" size="sm" ta="center" mt={5} mb={30}>
+          <Text c="dimmed" size="sm" ta="center" mt={5} mb={30}>
         {isChooseMethodState && "Enter your email address to receive a verification code"}
-        {isSentEmailState && "Enter the verification code sent to your email address"}
-        {!isChooseMethodState && !isSentEmailState && hasCodeField && "Enter the verification code sent to your email address"}
+        {isSentEmailState && "Enter the verification code sent to your email address, or click the verification link in your email"}
+        {!isChooseMethodState && !isSentEmailState && hasCodeField && "Enter the verification code sent to your email address, or click the verification link in your email"}
         {!isChooseMethodState && !isSentEmailState && !hasCodeField && "Enter your email address to receive a verification code"}
       </Text>
 

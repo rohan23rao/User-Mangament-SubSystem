@@ -46,6 +46,7 @@ export function Navigation({ onNavigate }: NavigationProps) {
       label: 'Organizations',
       path: '/organizations',
       badge: user?.organizations?.length.toString(),
+      adminOnly: true,
     },
     {
       icon: <IconUsers size="1rem" />,

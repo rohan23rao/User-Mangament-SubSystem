@@ -68,9 +68,21 @@ function App() {
                         <Route path="/" element={<Navigate to="/dashboard" replace />} />
                         <Route path="/dashboard" element={<Dashboard />} />
                         <Route path="/profile" element={<ProfilePage />} />
-                        <Route path="/users" element={<UsersPage />} />
-                        <Route path="/organizations" element={<OrganizationsPage />} />
-                        <Route path="/organizations/:id" element={<OrganizationDetailsPage />} />
+                        <Route path="/users" element={
+                          <ProtectedRoute adminOnly>
+                            <UsersPage />
+                          </ProtectedRoute>
+                        } />
+                        <Route path="/organizations" element={
+                          <ProtectedRoute adminOnly>
+                            <OrganizationsPage />
+                          </ProtectedRoute>
+                        } />
+                        <Route path="/organizations/:id" element={
+                          <ProtectedRoute adminOnly>
+                            <OrganizationDetailsPage />
+                          </ProtectedRoute>
+                        } />
                       </Routes>
                     </AppShell>
                   </ProtectedRoute>

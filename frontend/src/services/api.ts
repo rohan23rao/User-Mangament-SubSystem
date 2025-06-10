@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { notifications } from '@mantine/notifications';
 import { User } from '../types/user';
 import { Organization, CreateOrgRequest, InviteUserRequest, UpdateMemberRoleRequest, Member } from '../types/organization';
 
@@ -85,6 +86,24 @@ export class ApiService {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // Handle verification requirement
+    if (error.response?.status === 403 && error.response?.data?.code === 'EMAIL_NOT_VERIFIED') {
+      console.log('Email verification required - redirecting to verification page');
+      window.location.href = '/verification';
+      return Promise.reject(error);
+    }
+    
+    // Handle admin permission requirement
+    if (error.response?.status === 403 && error.response?.data?.code === 'ADMIN_REQUIRED') {
+      console.log('Admin permission required - showing error notification');
+      notifications.show({
+        title: 'Permission Denied',
+        message: 'Only administrators can create organizations',
+        color: 'red',
+      });
+      return Promise.reject(error);
+    }
+    
     // Don't auto-redirect on 401 - let the auth context handle it
     if (error.response?.status === 401) {
       console.log('API returned 401 - authentication required');
