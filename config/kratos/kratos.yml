@@ -93,6 +93,12 @@ selfservice:
       lifespan: 30m
       after:
         default_browser_return_url: http://172.16.1.65:3001/
+        hooks:
+          - hook: web_hook
+            config:
+              url: http://backend:3000/hooks/after-verification
+              method: POST
+              body: file:///etc/config/kratos/webhook_body.jsonnet
 
     logout:
       after:

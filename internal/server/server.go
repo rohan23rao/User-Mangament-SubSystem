@@ -105,6 +105,7 @@ func (s *Server) setupRoutes() *mux.Router {
 	hooks := r.PathPrefix("/hooks").Subrouter()
 	hooks.HandleFunc("/after-registration", s.webhookHandler.HandleAfterRegistration).Methods("POST")
 	hooks.HandleFunc("/after-login", s.webhookHandler.HandleAfterLogin).Methods("POST")
+	hooks.HandleFunc("/after-verification", s.webhookHandler.HandleAfterVerification).Methods("POST")
 
 	return r
 }
@@ -153,6 +154,7 @@ func (s *Server) Start() error {
 	fmt.Printf("  🔍 Debug:  http://localhost:%s/api/debug/auth\n", s.config.Port)
 	fmt.Printf("  🎣 Hooks:  http://localhost:%s/hooks/after-registration\n", s.config.Port)
 	fmt.Printf("  🎣 Hooks:  http://localhost:%s/hooks/after-login\n", s.config.Port)
+	fmt.Printf("  🎣 Hooks:  http://localhost:%s/hooks/after-verification\n", s.config.Port)
 	fmt.Printf("%s\n", logger.ColorReset)
 
 	logger.Success("Server starting on port %s", s.config.Port)

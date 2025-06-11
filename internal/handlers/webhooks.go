@@ -55,6 +55,28 @@ func (h *WebhookHandler) HandleAfterLogin(w http.ResponseWriter, r *http.Request
 	logger.Info("Login webhook processed successfully")
 }
 
+func (h *WebhookHandler) HandleAfterVerification(w http.ResponseWriter, r *http.Request) {
+	logger.Info("Processing verification webhook")
+
+	var payload models.WebhookPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		logger.Error("Invalid webhook payload: %v", err)
+		http.Error(w, "Invalid payload", http.StatusBadRequest)
+		return
+	}
+
+	logger.Success("User email verified: %s (%s)", payload.Identity.Id, h.getEmailFromIdentity(&payload.Identity))
+
+	// Update user profile and potentially trigger additional verification logic
+	h.saveUserProfile(&payload.Identity)
+
+	// You can add custom verification logic here
+	// For example: send welcome email, update user permissions, etc.
+
+	w.WriteHeader(http.StatusOK)
+	logger.Info("Verification webhook processed successfully")
+}
+
 func (h *WebhookHandler) getEmailFromIdentity(identity *client.Identity) string {
 	if traits, ok := identity.Traits.(map[string]interface{}); ok {
 		if email, exists := traits["email"].(string); exists {
