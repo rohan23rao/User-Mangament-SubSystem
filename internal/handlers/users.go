@@ -168,7 +168,23 @@ func (h *UserHandler) mapIdentityToUser(identity *client.Identity) models.User {
 		}
 	}
 
+	// Add verification status from Kratos identity
+	user.EmailVerified = h.isEmailVerified(identity)
+
 	return user
+}
+
+func (h *UserHandler) isEmailVerified(identity *client.Identity) bool {
+	// Check if the email is verified in Kratos
+	if identity.VerifiableAddresses != nil {
+		for _, addr := range identity.VerifiableAddresses {
+			// Check if this address is verified
+			if addr.Verified {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (h *UserHandler) getUserFromDB(userID string) (*models.User, error) {

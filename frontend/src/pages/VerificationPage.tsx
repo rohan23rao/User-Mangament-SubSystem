@@ -57,6 +57,7 @@ export default function VerificationPage() {
   const { isAuthenticated } = useAuth();
   const [loading, setLoading] = useState(false);
   const [verificationFlow, setVerificationFlow] = useState<VerificationFlow | null>(null);
+  const [hasInitialized, setHasInitialized] = useState(false);
 
   const form = useForm({
     initialValues: {
@@ -68,7 +69,9 @@ export default function VerificationPage() {
   // Only redirect if authenticated AND no verification flow is present
   useEffect(() => {
     const flowId = searchParams.get('flow');
-    if (isAuthenticated && !flowId) {
+    const code = searchParams.get('code');
+    
+    if (isAuthenticated && !flowId && !code) {
       // Only redirect if there's no verification flow to process
       navigate('/dashboard', { replace: true });
     }
@@ -76,61 +79,90 @@ export default function VerificationPage() {
 
   // Initialize or fetch verification flow
   useEffect(() => {
+    if (hasInitialized) return; // Prevent multiple initializations
+    
     const initializeFlow = async () => {
       const flowId = searchParams.get('flow');
+      const code = searchParams.get('code');
+      
+      setHasInitialized(true);
       
       if (flowId) {
         // Fetch existing flow
-        try {
-          setLoading(true);
-          const response = await fetch(`http://localhost:4433/self-service/verification/flows?id=${flowId}`, {
-            credentials: 'include',
-          });
-          
-          if (response.ok) {
-            const flow = await response.json();
-            setVerificationFlow(flow);
-            
-            // Pre-fill email if available from flow
-            const emailNode = flow.ui?.nodes?.find((node: any) => node.attributes?.name === 'email');
-            if (emailNode?.attributes?.value) {
-              form.setValues({ email: emailNode.attributes.value });
-            }
-          } else if (response.status === 410) {
-            // Flow expired, create a new one
-            notifications.show({
-              title: 'Verification Link Expired',
-              message: 'The verification link has expired. Creating a new verification flow.',
-              color: 'orange',
-            });
-            createVerificationFlow();
-          } else {
-            throw new Error('Failed to get verification flow');
-          }
-        } catch (error) {
-          console.error('Error fetching verification flow:', error);
-          notifications.show({
-            title: 'Verification Error',
-            message: 'Failed to load verification. Please try again.',
-            color: 'red',
-          });
-          createVerificationFlow();
-        } finally {
-          setLoading(false);
-        }
+        await fetchVerificationFlow(flowId);
+      } else if (code) {
+        // Create flow and auto-submit with code
+        await createVerificationFlowWithCode(code);
       } else {
-        // No flow ID, create new verification flow
-        createVerificationFlow();
+        // Create new flow for manual email entry
+        await createVerificationFlow();
       }
     };
 
     initializeFlow();
-  }, [searchParams, form]);
+  }, [searchParams, hasInitialized]);
+
+  const fetchVerificationFlow = async (flowId: string, retryCount = 0) => {
+    try {
+      setLoading(true);
+      
+      const response = await fetch(`http://localhost:4433/self-service/verification/flows?id=${flowId}`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        const flow = await response.json();
+        setVerificationFlow(flow);
+        
+        // Pre-fill email if available from flow
+        const emailNode = flow.ui?.nodes?.find((node: any) => node.attributes?.name === 'email');
+        if (emailNode?.attributes?.value) {
+          form.setValues({ email: emailNode.attributes.value });
+        }
+      } else if (response.status === 410) {
+        // Flow expired, create a new one
+        notifications.show({
+          title: 'Verification Link Expired',
+          message: 'Creating a new verification flow.',
+          color: 'orange',
+        });
+        await createVerificationFlow();
+      } else if (response.status === 403 && retryCount < 2) {
+        // CSRF error, clear cookies and retry
+        console.log('CSRF error, clearing cookies and retrying...');
+        
+        // Clear all cookies for this domain
+        document.cookie.split(";").forEach(function(c) { 
+          document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/"); 
+        });
+        
+        // Wait a bit and retry
+        setTimeout(() => {
+          fetchVerificationFlow(flowId, retryCount + 1);
+        }, 1000);
+        return;
+      } else {
+        throw new Error(`Failed to get verification flow: ${response.status}`);
+      }
+    } catch (error) {
+      console.error('Error fetching verification flow:', error);
+      // Don't show notification here, just create new flow
+      await createVerificationFlow();
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const createVerificationFlow = async () => {
     try {
       setLoading(true);
+      
       const response = await fetch('http://localhost:4433/self-service/verification/browser', {
+        method: 'GET',
         credentials: 'include',
         headers: {
           'Accept': 'application/json',
@@ -143,7 +175,7 @@ export default function VerificationPage() {
         // Update URL with flow ID
         navigate(`/verification?flow=${flow.id}`, { replace: true });
       } else {
-        throw new Error('Failed to create verification flow');
+        throw new Error(`Failed to create verification flow: ${response.status}`);
       }
     } catch (error) {
       console.error('Error creating verification flow:', error);
@@ -152,6 +184,42 @@ export default function VerificationPage() {
         message: 'Failed to create verification flow. Please try again.',
         color: 'red',
       });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const createVerificationFlowWithCode = async (code: string) => {
+    try {
+      setLoading(true);
+      
+      // First create a flow
+      const flowResponse = await fetch('http://localhost:4433/self-service/verification/browser', {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
+      
+      if (!flowResponse.ok) {
+        throw new Error('Failed to create verification flow');
+      }
+      
+      const flow = await flowResponse.json();
+      setVerificationFlow(flow);
+      
+      // Auto-submit with the code
+      await submitVerificationFlow(flow, { code });
+      
+    } catch (error) {
+      console.error('Error with verification code:', error);
+      notifications.show({
+        title: 'Verification Error',
+        message: 'Failed to process verification code. Please try again.',
+        color: 'red',
+      });
+      await createVerificationFlow();
     } finally {
       setLoading(false);
     }
@@ -167,28 +235,23 @@ export default function VerificationPage() {
       return;
     }
 
+    await submitVerificationFlow(verificationFlow, values);
+  };
+
+  const submitVerificationFlow = async (flow: VerificationFlow, values: { code?: string; email?: string }) => {
     try {
       setLoading(true);
 
       // Find CSRF token from flow
-      const csrfTokenNode = verificationFlow.ui?.nodes?.find(
+      const csrfTokenNode = flow.ui?.nodes?.find(
         (node: any) => node.attributes?.name === 'csrf_token'
       );
 
-      // Determine the submission type based on flow state and available values
+      // Determine the submission type
       const isCodeSubmission = values.code && values.code.trim() !== '';
       const isEmailSubmission = values.email && values.email.trim() !== '';
       
-      const body: any = {
-        method: 'code',
-      };
-
-      if (isCodeSubmission) {
-        body.code = values.code;
-      } else if (isEmailSubmission) {
-        body.email = values.email;
-      } else {
-        // If no valid input, show error
+      if (!isCodeSubmission && !isEmailSubmission) {
         notifications.show({
           title: 'Input Required',
           message: 'Please enter a valid email address or verification code.',
@@ -197,12 +260,28 @@ export default function VerificationPage() {
         return;
       }
 
+      const body: any = {
+        method: 'code',
+      };
+
+      // Only include the field that has data
+      if (isCodeSubmission) {
+        body.code = values.code;
+        console.log('Submitting verification code:', values.code);
+      } else if (isEmailSubmission) {
+        body.email = values.email;
+        console.log('Submitting email for verification:', values.email);
+      }
+
+      // Always include CSRF token if available
       if (csrfTokenNode?.attributes?.value) {
         body.csrf_token = csrfTokenNode.attributes.value;
       }
 
-      const response = await fetch(verificationFlow.ui.action, {
-        method: verificationFlow.ui.method,
+      console.log('Submitting verification with body:', body);
+
+      const response = await fetch(flow.ui.action, {
+        method: flow.ui.method,
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
@@ -211,9 +290,9 @@ export default function VerificationPage() {
         body: JSON.stringify(body),
       });
 
+      const result = await response.json();
+
       if (response.ok) {
-        const result = await response.json();
-        
         // Check if this was a successful verification
         if (isCodeSubmission) {
           notifications.show({
@@ -221,7 +300,7 @@ export default function VerificationPage() {
             message: 'Your email has been successfully verified!',
             color: 'green',
           });
-          // Redirect to dashboard if already authenticated, otherwise to login
+          // Redirect to login or dashboard
           navigate(isAuthenticated ? '/dashboard' : '/login', { replace: true });
         } else {
           // This was a request for new code
@@ -234,12 +313,10 @@ export default function VerificationPage() {
           setVerificationFlow(result);
         }
       } else {
-        const errorData = await response.json();
+        // Handle errors
+        setVerificationFlow(result);
         
-        // Update flow with new data (including errors)
-        setVerificationFlow(errorData);
-        
-        const errorMessage = errorData.ui?.messages?.[0]?.text || 'Verification failed';
+        const errorMessage = result.ui?.messages?.[0]?.text || 'Verification failed';
         notifications.show({
           title: 'Verification Failed',
           message: errorMessage,
@@ -281,6 +358,14 @@ export default function VerificationPage() {
   const isChooseMethodState = verificationFlow?.state === 'choose_method';
   const isSentEmailState = verificationFlow?.state === 'sent_email';
 
+  if (!hasInitialized) {
+    return (
+      <Container size={420} my={40}>
+        <LoadingOverlay visible={true} />
+      </Container>
+    );
+  }
+
   return (
     <Container size={420} my={40}>
       <Title ta="center" order={1} mb="md">
@@ -310,7 +395,7 @@ export default function VerificationPage() {
 
         <form onSubmit={form.onSubmit(handleSubmit)}>
           <Stack>
-            {hasEmailField && (
+            {hasEmailField && !hasCodeField && (
               <TextInput
                 label="Email Address"
                 placeholder="your@email.com"
@@ -326,14 +411,17 @@ export default function VerificationPage() {
                 placeholder="Enter your 6-digit code"
                 {...form.getInputProps('code')}
                 error={getFieldError('code')}
+                autoComplete="one-time-code"
+                inputMode="numeric"
+                pattern="[0-9]*"
               />
             )}
 
             <Button type="submit" fullWidth mt="xl" disabled={loading}>
-              {isChooseMethodState ? 'Send Verification Code' : 'Verify Email'}
+              {hasCodeField ? 'Verify Email' : 'Send Verification Code'}
             </Button>
 
-            {isSentEmailState && (
+            {hasCodeField && verificationFlow?.state === 'sent_email' && (
               <Button 
                 variant="subtle" 
                 fullWidth 
@@ -348,4 +436,4 @@ export default function VerificationPage() {
       </Paper>
     </Container>
   );
-} 
+}

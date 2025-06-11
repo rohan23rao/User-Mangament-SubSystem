@@ -19,12 +19,13 @@ import (
 )
 
 type Server struct {
-	config         *config.Config
-	authService    *auth.Service
-	userHandler    *handlersPackage.UserHandler
-	orgHandler     *handlersPackage.OrganizationHandler
-	healthHandler  *handlersPackage.HealthHandler
-	webhookHandler *handlersPackage.WebhookHandler
+	config             *config.Config
+	authService        *auth.Service
+	userHandler        *handlersPackage.UserHandler
+	orgHandler         *handlersPackage.OrganizationHandler
+	healthHandler      *handlersPackage.HealthHandler
+	webhookHandler     *handlersPackage.WebhookHandler
+	verificationHandler *handlersPackage.VerificationHandler
 }
 
 func New(cfg *config.Config) *Server {
@@ -57,14 +58,16 @@ func New(cfg *config.Config) *Server {
 	orgHandler := handlersPackage.NewOrganizationHandler(authService, kratosAdmin, db)
 	healthHandler := handlersPackage.NewHealthHandler(db)
 	webhookHandler := handlersPackage.NewWebhookHandler(userHandler)
+	verificationHandler := handlersPackage.NewVerificationHandler(authService, kratosAdmin)
 
 	return &Server{
-		config:         cfg,
-		authService:    authService,
-		userHandler:    userHandler,
-		orgHandler:     orgHandler,
-		healthHandler:  healthHandler,
-		webhookHandler: webhookHandler,
+		config:              cfg,
+		authService:         authService,
+		userHandler:         userHandler,
+		orgHandler:          orgHandler,
+		healthHandler:       healthHandler,
+		webhookHandler:      webhookHandler,
+		verificationHandler: verificationHandler,
 	}
 }
 
@@ -93,6 +96,10 @@ func (s *Server) setupRoutes() *mux.Router {
 	api.HandleFunc("/organizations/{id}/members", s.orgHandler.AddMember).Methods("POST")
 	api.HandleFunc("/organizations/{id}/members", s.orgHandler.GetMembers).Methods("GET")
 	api.HandleFunc("/organizations/{id}/members/{user_id}", s.orgHandler.UpdateMemberRole).Methods("PUT")
+
+	// Verification endpoints (for testing)
+	api.HandleFunc("/users/{id}/verification/status", s.verificationHandler.GetVerificationStatus).Methods("GET")
+	api.HandleFunc("/verification/flow", s.verificationHandler.CreateVerificationFlow).Methods("GET")
 
 	// Webhook endpoints
 	hooks := r.PathPrefix("/hooks").Subrouter()
@@ -144,6 +151,8 @@ func (s *Server) Start() error {
 	fmt.Printf("  🏢 Orgs:   http://localhost:%s/api/organizations\n", s.config.Port)
 	fmt.Printf("  🔐 Auth:   Bearer token or Cookie authentication\n")
 	fmt.Printf("  🔍 Debug:  http://localhost:%s/api/debug/auth\n", s.config.Port)
+	fmt.Printf("  🎣 Hooks:  http://localhost:%s/hooks/after-registration\n", s.config.Port)
+	fmt.Printf("  🎣 Hooks:  http://localhost:%s/hooks/after-login\n", s.config.Port)
 	fmt.Printf("%s\n", logger.ColorReset)
 
 	logger.Success("Server starting on port %s", s.config.Port)
