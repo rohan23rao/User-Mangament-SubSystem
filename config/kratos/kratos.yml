@@ -1,13 +1,16 @@
+# config/kratos/kratos.yml
 dsn: postgres://userms:userms_password@postgres:5432/userms?sslmode=disable
 
 serve:
   public:
-    base_url: http://localhost:4433/
+    base_url: http://172.16.1.65:4433/
     cors:
       enabled: true
       allowed_origins:
         - http://localhost:3000
         - http://localhost:3001
+        - http://172.16.1.65:3000
+        - http://172.16.1.65:3001
         - http://localhost:8080
       allowed_methods:
         - POST
@@ -28,15 +31,19 @@ serve:
         - Set-Cookie
       allow_credentials: true
   admin:
-    base_url: http://localhost:4434/
+    base_url: http://172.16.1.65:4434/
 
 selfservice:
-  default_browser_return_url: http://localhost:3001/
+  default_browser_return_url: http://172.16.1.65:3001/
   allowed_return_urls:
     - http://localhost:3000
     - http://localhost:3001
     - http://localhost:3000/auth/callback
     - http://localhost:3001/auth/callback
+    - http://172.16.1.65:3000
+    - http://172.16.1.65:3001
+    - http://172.16.1.65:3000/auth/callback
+    - http://172.16.1.65:3001/auth/callback
 
   methods:
     password:
@@ -67,32 +74,32 @@ selfservice:
 
   flows:
     error:
-      ui_url: http://localhost:3001/error
+      ui_url: http://172.16.1.65:3001/error
 
     settings:
-      ui_url: http://localhost:3001/settings
+      ui_url: http://172.16.1.65:3001/settings
       privileged_session_max_age: 15m
       required_aal: highest_available
 
     recovery:
       enabled: true
-      ui_url: http://localhost:3001/recovery
+      ui_url: http://172.16.1.65:3001/recovery
       use: code
 
     verification:
       enabled: true
-      ui_url: http://localhost:3001/verification
+      ui_url: http://172.16.1.65:3001/verification
       use: code
       lifespan: 30m
       after:
-        default_browser_return_url: http://localhost:3001/
+        default_browser_return_url: http://172.16.1.65:3001/
 
     logout:
       after:
-        default_browser_return_url: http://localhost:3001/login
+        default_browser_return_url: http://172.16.1.65:3001/login
 
     login:
-      ui_url: http://localhost:3001/login
+      ui_url: http://172.16.1.65:3001/login
       lifespan: 10m
       after:
         hooks:
@@ -104,7 +111,7 @@ selfservice:
 
     registration:
       lifespan: 10m
-      ui_url: http://localhost:3001/register
+      ui_url: http://172.16.1.65:3001/register
       after:
         password:
           hooks:
@@ -123,17 +130,18 @@ selfservice:
                 method: POST
                 body: file:///etc/config/kratos/webhook_body.jsonnet
             - hook: session
+            # REMOVED show_verification_ui for OAuth - Google users are auto-verified
 
 log:
-  level: debug
+  level: info
   format: text
-  leak_sensitive_values: true
+  leak_sensitive_values: false
 
 secrets:
   cookie:
-    - PLEASE-CHANGE-ME-I-AM-VERY-INSECURE
+    - "f8h3x9nR7mQ2vL6bK1sD8wE4yP5tA9zN"
   cipher:
-    - 32-LONG-SECRET-NOT-SECURE-AT-ALL
+    - "k7nH2vL8bF5sQ1wE9tY6pA3mR4xN7zD0"
 
 ciphers:
   algorithm: xchacha20-poly1305
@@ -141,7 +149,7 @@ ciphers:
 hashers:
   algorithm: bcrypt
   bcrypt:
-    cost: 8
+    cost: 12
 
 identity:
   default_schema_id: default

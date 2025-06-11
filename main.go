@@ -1601,6 +1601,12 @@ func main() {
 			"http://localhost:3000",
 			"http://localhost:3001", // Frontend development server
 			"http://localhost:8080",
+			"http://172.16.1.65:3000",
+			"http://172.16.1.65:3001",
+			"http://172.16.1.65:8080",
+			"http://172.16.1.66:3000",
+			"http://172.16.1.66:3001",
+			"http://172.16.1.66:8080",
 			"file://", // For local HTML files
 		}),
 		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),

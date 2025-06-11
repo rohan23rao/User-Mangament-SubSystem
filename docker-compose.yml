@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: userms
       POSTGRES_PASSWORD: userms_password
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -96,8 +96,10 @@ services:
     ports:
       - "3001:3001"
     environment:
-      - REACT_APP_API_URL=http://localhost:3000
-      - REACT_APP_KRATOS_PUBLIC_URL=http://localhost:4433
+      # - REACT_APP_API_URL=http://localhost:3000
+      # - REACT_APP_KRATOS_PUBLIC_URL=http://localhost:4433
+      - REACT_APP_API_URL=http://172.16.1.65:3000
+      - REACT_APP_KRATOS_PUBLIC_URL=http://172.16.1.65:4433
       - PORT=3001
       - GENERATE_SOURCEMAP=false
       - WATCHPACK_POLLING=true
