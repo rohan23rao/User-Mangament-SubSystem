@@ -1,3 +1,4 @@
+# config/kratos/kratos.yml
 dsn: postgres://userms:userms_password@postgres:5432/userms?sslmode=disable
 
 serve:
@@ -129,6 +130,7 @@ selfservice:
                 method: POST
                 body: file:///etc/config/kratos/webhook_body.jsonnet
             - hook: session
+            # REMOVED show_verification_ui for OAuth - Google users are auto-verified
 
 log:
   level: info
