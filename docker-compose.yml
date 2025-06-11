@@ -4,9 +4,9 @@ services:
     environment:
       POSTGRES_DB: userms
       POSTGRES_USER: userms
-      POSTGRES_PASSWORD: userms_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-userms_password}
     ports:
-      - "5432:5432"
+      - "0.0.0.0:5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -21,7 +21,7 @@ services:
   kratos-migrate:
     image: oryd/kratos:v1.0.0
     environment:
-      - DSN=postgres://userms:userms_password@postgres:5432/userms?sslmode=disable
+      - DSN=postgres://userms:${POSTGRES_PASSWORD:-userms_password}@postgres:5432/userms?sslmode=disable
     volumes:
       - type: bind
         source: ./config/kratos
@@ -40,14 +40,14 @@ services:
       - kratos-migrate
     image: oryd/kratos:v1.0.0
     ports:
-      - '4433:4433' # public
-      - '4434:4434' # admin
+      - '0.0.0.0:4433:4433' # public
+      - '0.0.0.0:4434:4434' # admin
     restart: unless-stopped
     environment:
-      - DSN=postgres://userms:userms_password@postgres:5432/userms?sslmode=disable
-      - LOG_LEVEL=trace
-      - GOOGLE_CLIENT_ID=165106799463-ijl47hp8fco7abh6hcsu453lb4kvqjlf.apps.googleusercontent.com
-      - GOOGLE_CLIENT_SECRET=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
+      - DSN=postgres://userms:${POSTGRES_PASSWORD:-userms_password}@postgres:5432/userms?sslmode=disable
+      - LOG_LEVEL=info
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-165106799463-ijl47hp8fco7abh6hcsu453lb4kvqjlf.apps.googleusercontent.com}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-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}
     command: serve -c /etc/config/kratos/kratos.yml --dev --watch-courier
     volumes:
       - type: bind
@@ -62,11 +62,11 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "0.0.0.0:3000:3000"
     environment:
       - KRATOS_PUBLIC_URL=http://kratos:4433
       - KRATOS_ADMIN_URL=http://kratos:4434
-      - DATABASE_URL=postgres://userms:userms_password@postgres:5432/userms?sslmode=disable
+      - DATABASE_URL=postgres://userms:${POSTGRES_PASSWORD:-userms_password}@postgres:5432/userms?sslmode=disable
       - PORT=3000
     volumes:
       - ./:/app
@@ -84,8 +84,8 @@ services:
   mailslurper:
     image: oryd/mailslurper:latest-smtps
     ports:
-      - '4436:4436'
-      - '4437:4437'
+      - '0.0.0.0:4436:4436'
+      - '0.0.0.0:4437:4437'
     networks:
       - intranet
 
@@ -94,7 +94,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "3001:3001"
+      - "0.0.0.0:3001:3001"
     environment:
       - REACT_APP_API_URL=http://localhost:3000
       - REACT_APP_KRATOS_PUBLIC_URL=http://localhost:4433

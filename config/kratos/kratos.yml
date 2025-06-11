@@ -8,6 +8,8 @@ serve:
       allowed_origins:
         - http://localhost:3000
         - http://localhost:3001
+        - http://172.16.1.65:3000
+        - http://172.16.1.65:3001
         - http://localhost:8080
       allowed_methods:
         - POST
@@ -37,6 +39,10 @@ selfservice:
     - http://localhost:3001
     - http://localhost:3000/auth/callback
     - http://localhost:3001/auth/callback
+    - http://172.16.1.65:3000
+    - http://172.16.1.65:3001
+    - http://172.16.1.65:3000/auth/callback
+    - http://172.16.1.65:3001/auth/callback
 
   methods:
     password:
@@ -125,15 +131,15 @@ selfservice:
             - hook: session
 
 log:
-  level: debug
+  level: info
   format: text
-  leak_sensitive_values: true
+  leak_sensitive_values: false
 
 secrets:
   cookie:
-    - PLEASE-CHANGE-ME-I-AM-VERY-INSECURE
+    - "f8h3x9nR7mQ2vL6bK1sD8wE4yP5tA9zN"
   cipher:
-    - 32-LONG-SECRET-NOT-SECURE-AT-ALL
+    - "k7nH2vL8bF5sQ1wE9tY6pA3mR4xN7zD0"
 
 ciphers:
   algorithm: xchacha20-poly1305
@@ -141,7 +147,7 @@ ciphers:
 hashers:
   algorithm: bcrypt
   bcrypt:
-    cost: 8
+    cost: 12
 
 identity:
   default_schema_id: default
