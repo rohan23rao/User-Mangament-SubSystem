@@ -2,52 +2,49 @@ import React, { useState, useEffect } from 'react';
 import {
   Container,
   Title,
-  Button,
-  Group,
-  Card,
   Text,
-  Badge,
-  Grid,
+  Button,
+  Paper,
   Stack,
+  Group,
+  Grid,
+  Card,
+  Badge,
   Modal,
   TextInput,
   Textarea,
   Select,
   LoadingOverlay,
+  Alert,
   ActionIcon,
   Avatar,
-  Paper,
-  ThemeIcon,
-  Box,
-  Divider,
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
+import { modals } from '@mantine/modals';
+import { useNavigate } from 'react-router-dom';
 import {
   IconPlus,
-  IconBuilding,
   IconEye,
   IconEdit,
   IconTrash,
-  IconCrown,
-  IconShield,
   IconShieldCheck,
+  IconShield,
   IconCalendar,
-  IconUsers,
+  IconBuilding,
+  IconInfoCircle,
 } from '@tabler/icons-react';
-import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../hooks/useAuth';
 import { ApiService } from '../services/api';
 import { Organization, CreateOrgRequest } from '../types/organization';
-import { useAuth } from '../hooks/useAuth';
-import { modals } from '@mantine/modals';
 
-export default function OrganizationsPage() {
+function OrganizationsPage() {
+  const navigate = useNavigate();
+  const { user, loading: authLoading } = useAuth();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [createModalOpened, setCreateModalOpened] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const navigate = useNavigate();
-  const { user } = useAuth();
 
   const form = useForm<CreateOrgRequest>({
     initialValues: {
@@ -69,10 +66,10 @@ export default function OrganizationsPage() {
     try {
       setLoading(true);
       const data = await ApiService.getOrganizations();
-      setOrganizations(data || []); // Ensure we always set an array
+      setOrganizations(data || []);
     } catch (error) {
       console.error('Failed to load organizations:', error);
-      setOrganizations([]); // Reset to empty array on error
+      setOrganizations([]);
       notifications.show({
         title: 'Error',
         message: 'Failed to load organizations',
@@ -150,14 +147,9 @@ export default function OrganizationsPage() {
     return role === 'admin' || isOwner((organizations || []).find(o => o.id === orgId)!);
   };
 
+  // UPDATED: Use the new permission field from the backend
   const canCreateOrganizations = () => {
-    // For now, allow any authenticated user to create organizations
-    // In production, you might want to restrict this to specific roles
-    return !!user;
-  };
-
-  const isUserAdmin = () => {
-    return canCreateOrganizations();
+    return user?.can_create_organizations || false;
   };
 
   const getVerificationStatus = () => {
@@ -199,6 +191,18 @@ export default function OrganizationsPage() {
           </Group>
         </Paper>
 
+        {/* Permission Notice - Show if user cannot create organizations */}
+        {!canCreateOrganizations() && (
+          <Alert
+            icon={<IconInfoCircle />}
+            title="Organization Creation"
+            color="blue"
+            variant="light"
+          >
+            You don't have permission to create organizations. Contact an administrator if you need to create a new organization.
+          </Alert>
+        )}
+
         {/* My Organizations */}
         <div>
           <Group justify="space-between" mb="md">
@@ -209,40 +213,30 @@ export default function OrganizationsPage() {
           </Group>
 
           {!user?.organizations || user.organizations.length === 0 ? (
-            <Paper withBorder radius="md" p="xl" ta="center">
-              <Stack align="center" gap="md">
-                <ThemeIcon size={60} radius="xl" color="gray" variant="light">
-                  <IconBuilding size="2rem" />
-                </ThemeIcon>
-                <Text c="dimmed" size="lg">You are not part of any organizations yet</Text>
-                <Text c="dimmed" size="sm">Contact an administrator to be added to an organization</Text>
+            <Paper p="xl" radius="md" withBorder>
+              <Stack gap="md" align="center">
+                <IconBuilding size={48} stroke={1.5} color="gray" />
+                <div style={{ textAlign: 'center' }}>
+                  <Text size="lg" fw={500}>No Organizations</Text>
+                  <Text c="dimmed">You haven't joined any organizations yet.</Text>
+                </div>
               </Stack>
             </Paper>
           ) : (
             <Grid>
               {user.organizations.map((orgMember) => (
-                <Grid.Col key={orgMember.org_id} span={{ base: 12, md: 6 }}>
-                  <Card withBorder radius="md" p="md">
-                    <Group justify="space-between" mb="xs">
-                      <Group gap="xs">
-                        <Avatar color="blue" radius="sm" size="sm">
-                          {orgMember.org_name.charAt(0).toUpperCase()}
-                        </Avatar>
-                        <div>
-                          <Text fw={500} size="sm">{orgMember.org_name}</Text>
-                          <Text c="dimmed" size="xs">{orgMember.org_type}</Text>
-                        </div>
-                      </Group>
-                      {orgMember.role === 'admin' && (
-                        <ThemeIcon size="sm" color="green" variant="light">
-                          <IconCrown size="0.8rem" />
-                        </ThemeIcon>
-                      )}
-                    </Group>
+                <Grid.Col key={orgMember.org_id} span={{ base: 12, sm: 6, md: 4 }}>
+                  <Card shadow="sm" padding="lg" radius="md" withBorder>
+                    <Stack gap="sm">
+                      <Title order={4}>{orgMember.org_name}</Title>
+                      <Text size="sm" c="dimmed" lineClamp={2}>
+                        {orgMember.org_type} organization
+                      </Text>
+                    </Stack>
 
                     <Group justify="space-between" mt="md">
                       <Badge
-                        color={orgMember.role === 'admin' ? 'green' : 'blue'}
+                        color={orgMember.role === 'owner' ? 'red' : orgMember.role === 'admin' ? 'green' : 'blue'}
                         variant="light"
                         size="sm"
                       >
@@ -273,7 +267,7 @@ export default function OrganizationsPage() {
     </Container>
   );
 
-  // Admin View - Full organization management
+  // Admin View - Full organization management (only for users with permission)
   const renderAdminView = () => (
     <Container size="xl" py="xl">
       <Group justify="space-between" mb="xl">
@@ -297,19 +291,14 @@ export default function OrganizationsPage() {
         </Paper>
       ) : (!organizations || organizations.length === 0) ? (
         <Paper p="xl" radius="md" withBorder>
-          <Stack align="center" gap="md">
-            <ThemeIcon size={80} radius="xl" color="blue" variant="light">
-              <IconBuilding size="3rem" />
-            </ThemeIcon>
-            <Title order={3} ta="center">
-              No organizations yet
-            </Title>
-            <Text c="dimmed" ta="center" size="lg">
-              Create your first organization to get started
-            </Text>
+          <Stack gap="md" align="center">
+            <IconBuilding size={48} stroke={1.5} color="gray" />
+            <div style={{ textAlign: 'center' }}>
+              <Text size="lg" fw={500}>No Organizations</Text>
+              <Text c="dimmed">Create your first organization to get started.</Text>
+            </div>
             <Button
               leftSection={<IconPlus size="1rem" />}
-              size="lg"
               onClick={() => setCreateModalOpened(true)}
             >
               Create Organization
@@ -318,40 +307,18 @@ export default function OrganizationsPage() {
         </Paper>
       ) : (
         <Grid>
-          {(organizations || []).map((org) => (
-            <Grid.Col key={org.id} span={{ base: 12, md: 6, lg: 4 }}>
-              <Card withBorder radius="md" p="md" style={{ height: '100%' }}>
-                <Card.Section withBorder inheritPadding py="xs">
-                  <Group justify="space-between">
-                    <Group gap="xs">
-                      <Avatar color="blue" radius="sm">
-                        {org.name.charAt(0).toUpperCase()}
-                      </Avatar>
-                      <div>
-                        <Text fw={500} size="sm">
-                          {org.name}
-                        </Text>
-                        <Text c="dimmed" size="xs">
-                          {org.org_type}
-                        </Text>
-                      </div>
-                    </Group>
-                    {isOwner(org) && (
-                      <ThemeIcon size="sm" color="yellow" variant="light">
-                        <IconCrown size="0.8rem" />
-                      </ThemeIcon>
-                    )}
-                  </Group>
-                </Card.Section>
-
-                <Stack gap="xs" mt="md" style={{ flex: 1 }}>
-                  <Text size="sm" c="dimmed" lineClamp={3}>
-                    {org.description || 'No description provided'}
+          {organizations.map((org) => (
+            <Grid.Col key={org.id} span={{ base: 12, sm: 6, lg: 4 }}>
+              <Card shadow="sm" padding="lg" radius="md" withBorder>
+                <Stack gap="sm">
+                  <Title order={4}>{org.name}</Title>
+                  <Text size="sm" c="dimmed" lineClamp={2}>
+                    {org.description}
                   </Text>
 
                   <Group gap="xs">
                     <Badge
-                      color={getUserRole(org.id) === 'admin' ? 'green' : 'blue'}
+                      color={getUserRole(org.id) === 'owner' ? 'red' : getUserRole(org.id) === 'admin' ? 'green' : 'blue'}
                       variant="light"
                       size="sm"
                     >
@@ -459,7 +426,7 @@ export default function OrganizationsPage() {
   );
 
   // Show loading state
-  if (loading && !user) {
+  if (authLoading || (loading && !user)) {
     return (
       <Container size="lg" py="xl">
         <Paper p="xl" radius="md" withBorder>
@@ -469,6 +436,8 @@ export default function OrganizationsPage() {
     );
   }
 
-  // Render appropriate view based on user role
-  return isUserAdmin() ? renderAdminView() : renderMemberView();
+  // UPDATED: Use permission-based view selection
+  return canCreateOrganizations() ? renderAdminView() : renderMemberView();
 }
+
+export default OrganizationsPage;

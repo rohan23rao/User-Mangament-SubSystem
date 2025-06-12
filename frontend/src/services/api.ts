@@ -70,7 +70,7 @@ export class ApiService {
   }
 
   static async updateMemberRole(organizationId: string, userId: string, data: UpdateMemberRoleRequest): Promise<Member> {
-    const response = await api.put(`/api/organizations/${organizationId}/members/${userId}/role`, data);
+    const response = await api.put(`/api/organizations/${organizationId}/members/${userId}`, data);
     return response.data;
   }
 

@@ -41,6 +41,23 @@ func (h *OrganizationHandler) CreateOrganization(w http.ResponseWriter, r *http.
 
 	logger.Auth("Organization creation authorized for user: %s", session.Identity.Id)
 
+	// ADDED: Check if user has permission to create organizations
+	var canCreateOrgs bool
+	err = h.db.QueryRow("SELECT can_create_organizations FROM users WHERE id = $1", session.Identity.Id).Scan(&canCreateOrgs)
+	if err != nil {
+		logger.Error("Failed to check user permissions: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if !canCreateOrgs {
+		logger.Auth("User %s does not have permission to create organizations", session.Identity.Id)
+		http.Error(w, "Forbidden: You do not have permission to create organizations", http.StatusForbidden)
+		return
+	}
+
+	logger.Auth("User %s has permission to create organizations", session.Identity.Id)
+
 	var req models.CreateOrgRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		logger.Error("Invalid request body for organization creation: %v", err)
@@ -88,11 +105,11 @@ func (h *OrganizationHandler) CreateOrganization(w http.ResponseWriter, r *http.
 
 	logger.DB("Organization created with ID: %s", orgID)
 
-	// Add owner as admin member
+	// CHANGED: Add owner as 'owner' role instead of 'admin'
 	_, err = h.db.Exec(`
 		INSERT INTO user_organization_links (user_id, organization_id, role)
 		VALUES ($1, $2, $3)`,
-		session.Identity.Id, orgID, "admin",
+		session.Identity.Id, orgID, "owner",
 	)
 	if err != nil {
 		logger.Error("Failed to add owner to organization: %v", err)
@@ -100,7 +117,7 @@ func (h *OrganizationHandler) CreateOrganization(w http.ResponseWriter, r *http.
 		return
 	}
 
-	logger.DB("Owner added as admin to organization %s", orgID)
+	logger.DB("Owner added as owner to organization %s", orgID)
 	h.saveUserProfile(&session.Identity)
 
 	org := models.Organization{
@@ -217,7 +234,6 @@ func (h *OrganizationHandler) GetOrganization(w http.ResponseWriter, r *http.Req
 		json.Unmarshal(dataJSON, &org.Data)
 	}
 
-	// Get members
 	members, err := h.getOrgMembers(orgID)
 	if err != nil {
 		logger.Warning("Failed to fetch organization members: %v", err)
@@ -225,7 +241,7 @@ func (h *OrganizationHandler) GetOrganization(w http.ResponseWriter, r *http.Req
 		org.Members = members
 	}
 
-	logger.Success("Organization details retrieved for: %s", org.Name)
+	logger.Success("Organization details retrieved for ID: %s", orgID)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(org)
@@ -260,9 +276,9 @@ func (h *OrganizationHandler) UpdateOrganization(w http.ResponseWriter, r *http.
 	dataJSON, _ := json.Marshal(req.Data)
 	_, err = h.db.Exec(`
 		UPDATE organizations 
-		SET name = $1, description = $2, data = $3, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $4`,
-		req.Name, req.Description, dataJSON, orgID,
+		SET name = $1, description = $2, org_type = $3, data = $4, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $5`,
+		req.Name, req.Description, req.OrgType, dataJSON, orgID,
 	)
 	if err != nil {
 		logger.Error("Failed to update organization: %v", err)
@@ -271,8 +287,9 @@ func (h *OrganizationHandler) UpdateOrganization(w http.ResponseWriter, r *http.
 	}
 
 	logger.Success("Organization %s updated successfully", orgID)
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Organization updated successfully"})
+
+	// Return updated organization
+	h.GetOrganization(w, r)
 }
 
 func (h *OrganizationHandler) DeleteOrganization(w http.ResponseWriter, r *http.Request) {
@@ -286,23 +303,14 @@ func (h *OrganizationHandler) DeleteOrganization(w http.ResponseWriter, r *http.
 	vars := mux.Vars(r)
 	orgID := vars["id"]
 
-	if !h.isOrgAdmin(session.Identity.Id, orgID) {
-		logger.Auth("User %s not admin of organization %s", session.Identity.Id, orgID)
-		http.Error(w, "Forbidden", http.StatusForbidden)
+	if !h.isOrgOwner(session.Identity.Id, orgID) {
+		logger.Auth("User %s not owner of organization %s", session.Identity.Id, orgID)
+		http.Error(w, "Forbidden: Only organization owners can delete organizations", http.StatusForbidden)
 		return
 	}
 
 	logger.Info("Deleting organization %s", orgID)
 
-	// Delete members first
-	_, err = h.db.Exec("DELETE FROM user_organization_links WHERE organization_id = $1", orgID)
-	if err != nil {
-		logger.Error("Failed to delete organization members: %v", err)
-		http.Error(w, "Failed to delete organization", http.StatusInternalServerError)
-		return
-	}
-
-	// Delete organization
 	_, err = h.db.Exec("DELETE FROM organizations WHERE id = $1", orgID)
 	if err != nil {
 		logger.Error("Failed to delete organization: %v", err)
@@ -311,8 +319,7 @@ func (h *OrganizationHandler) DeleteOrganization(w http.ResponseWriter, r *http.
 	}
 
 	logger.Success("Organization %s deleted successfully", orgID)
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Organization deleted successfully"})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *OrganizationHandler) AddMember(w http.ResponseWriter, r *http.Request) {
@@ -339,26 +346,20 @@ func (h *OrganizationHandler) AddMember(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if req.Email == "" || req.Role == "" {
-		logger.Warning("Add member failed: email and role are required")
-		http.Error(w, "Email and role are required", http.StatusBadRequest)
-		return
-	}
-
-	validRoles := map[string]bool{"admin": true, "member": true, "viewer": true}
+	validRoles := map[string]bool{"admin": true, "member": true}
 	if !validRoles[req.Role] {
 		logger.Warning("Invalid role: %s", req.Role)
-		http.Error(w, "Invalid role. Must be 'admin', 'member', or 'viewer'", http.StatusBadRequest)
+		http.Error(w, "Invalid role. Must be 'admin' or 'member'", http.StatusBadRequest)
 		return
 	}
 
-	logger.Info("Adding member %s with role %s to organization %s", req.Email, req.Role, orgID)
+	logger.Info("Adding member %s to organization %s with role %s", req.Email, orgID, req.Role)
 
-	// Find user by email in Kratos
+	// Find user by email from Kratos
 	identities, resp, err := h.kratosAdmin.IdentityApi.ListIdentities(context.Background()).Execute()
 	if err != nil {
 		logger.Error("Failed to fetch identities from Kratos: %v", err)
-		http.Error(w, "Failed to find user", http.StatusInternalServerError)
+		http.Error(w, "Failed to lookup user", http.StatusInternalServerError)
 		return
 	}
 	if resp != nil {
@@ -461,10 +462,10 @@ func (h *OrganizationHandler) UpdateMemberRole(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	validRoles := map[string]bool{"admin": true, "member": true, "viewer": true}
+	validRoles := map[string]bool{"admin": true, "member": true, "owner": true}
 	if !validRoles[req.Role] {
 		logger.Warning("Invalid role: %s", req.Role)
-		http.Error(w, "Invalid role. Must be 'admin', 'member', or 'viewer'", http.StatusBadRequest)
+		http.Error(w, "Invalid role. Must be 'admin', 'member', or 'owner'", http.StatusBadRequest)
 		return
 	}
 
@@ -552,10 +553,21 @@ func (h *OrganizationHandler) isOrgMember(userID, orgID string) bool {
 	return err == nil && count > 0
 }
 
+// UPDATED: Enhanced isOrgAdmin to include owners
 func (h *OrganizationHandler) isOrgAdmin(userID, orgID string) bool {
 	var count int
 	err := h.db.QueryRow(
-		"SELECT COUNT(*) FROM user_organization_links WHERE user_id = $1 AND organization_id = $2 AND role = 'admin'",
+		"SELECT COUNT(*) FROM user_organization_links WHERE user_id = $1 AND organization_id = $2 AND role IN ('admin', 'owner')",
+		userID, orgID,
+	).Scan(&count)
+	return err == nil && count > 0
+}
+
+// ADDED: Helper function to check if user is organization owner
+func (h *OrganizationHandler) isOrgOwner(userID, orgID string) bool {
+	var count int
+	err := h.db.QueryRow(
+		"SELECT COUNT(*) FROM user_organization_links WHERE user_id = $1 AND organization_id = $2 AND role = 'owner'",
 		userID, orgID,
 	).Scan(&count)
 	return err == nil && count > 0

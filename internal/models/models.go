@@ -7,18 +7,19 @@ import (
 )
 
 type User struct {
-	ID            string      `json:"id"`
-	Email         string      `json:"email"`
-	EmailVerified bool        `json:"email_verified"`
-	FirstName     string      `json:"first_name"`
-	LastName      string      `json:"last_name"`
-	TimeZone      string      `json:"time_zone"`
-	UIMode        string      `json:"ui_mode"`
-	Traits        interface{} `json:"traits"`
-	Organizations []OrgMember `json:"organizations,omitempty"`
-	CreatedAt     time.Time   `json:"created_at"`
-	UpdatedAt     time.Time   `json:"updated_at"`
-	LastLogin     *time.Time  `json:"last_login"`
+	ID                     string      `json:"id"`
+	Email                  string      `json:"email"`
+	EmailVerified          bool        `json:"email_verified"`
+	FirstName              string      `json:"first_name"`
+	LastName               string      `json:"last_name"`
+	TimeZone               string      `json:"time_zone"`
+	UIMode                 string      `json:"ui_mode"`
+	CanCreateOrganizations bool        `json:"can_create_organizations"` // ADDED: New permission field
+	Traits                 interface{} `json:"traits"`
+	Organizations          []OrgMember `json:"organizations,omitempty"`
+	CreatedAt              time.Time   `json:"created_at"`
+	UpdatedAt              time.Time   `json:"updated_at"`
+	LastLogin              *time.Time  `json:"last_login"`
 }
 
 type Organization struct {

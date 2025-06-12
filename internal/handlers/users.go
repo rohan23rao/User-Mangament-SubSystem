@@ -50,6 +50,7 @@ func (h *UserHandler) WhoAmI(w http.ResponseWriter, r *http.Request) {
 		user.LastName = dbUser.LastName
 		user.TimeZone = dbUser.TimeZone
 		user.UIMode = dbUser.UIMode
+		user.CanCreateOrganizations = dbUser.CanCreateOrganizations // ADDED: Include permission field
 		user.CreatedAt = dbUser.CreatedAt
 		user.UpdatedAt = dbUser.UpdatedAt
 		user.LastLogin = dbUser.LastLogin
@@ -96,6 +97,7 @@ func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 			user.LastName = dbUser.LastName
 			user.TimeZone = dbUser.TimeZone
 			user.UIMode = dbUser.UIMode
+			user.CanCreateOrganizations = dbUser.CanCreateOrganizations // ADDED: Include permission field
 			user.CreatedAt = dbUser.CreatedAt
 			user.UpdatedAt = dbUser.UpdatedAt
 			user.LastLogin = dbUser.LastLogin
@@ -137,6 +139,7 @@ func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 		user.LastName = dbUser.LastName
 		user.TimeZone = dbUser.TimeZone
 		user.UIMode = dbUser.UIMode
+		user.CanCreateOrganizations = dbUser.CanCreateOrganizations // ADDED: Include permission field
 		user.CreatedAt = dbUser.CreatedAt
 		user.UpdatedAt = dbUser.UpdatedAt
 		user.LastLogin = dbUser.LastLogin
@@ -187,23 +190,22 @@ func (h *UserHandler) isEmailVerified(identity *client.Identity) bool {
 	return false
 }
 
+// UPDATED: getUserFromDB method to include can_create_organizations
 func (h *UserHandler) getUserFromDB(userID string) (*models.User, error) {
 	var user models.User
 	err := h.db.QueryRow(`
-		SELECT id, email, first_name, last_name, time_zone, ui_mode, created_at, updated_at, last_login
-		FROM users WHERE id = $1
-	`, userID).Scan(
-		&user.ID, &user.Email, &user.FirstName, &user.LastName, 
-		&user.TimeZone, &user.UIMode, &user.CreatedAt, &user.UpdatedAt, &user.LastLogin,
+		SELECT id, email, first_name, last_name, time_zone, ui_mode, can_create_organizations, created_at, updated_at, last_login
+		FROM users WHERE id = $1`, userID).Scan(
+		&user.ID, &user.Email, &user.FirstName, &user.LastName, &user.TimeZone, &user.UIMode, 
+		&user.CanCreateOrganizations, // ADDED: Include permission field
+		&user.CreatedAt, &user.UpdatedAt, &user.LastLogin,
 	)
-	
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	
 	return &user, nil
 }
 

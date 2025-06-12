@@ -5,6 +5,7 @@ export interface User {
   last_name: string;
   time_zone: string;
   ui_mode: string;
+  can_create_organizations: boolean; // ADDED: New permission field
   traits: {
     email: string;
     name?: {
@@ -12,27 +13,19 @@ export interface User {
       last: string;
     };
   };
+  verifiable_addresses?: Array<{
+    id: string;
+    value: string;
+    verified: boolean;
+    via: string;
+    status: string;
+    created_at: string;
+    updated_at: string;
+  }>;
   organizations?: OrgMember[];
   created_at: string;
   updated_at: string;
   last_login?: string;
-  verified?: boolean;
-  recovery_addresses?: RecoveryAddress[];
-  verifiable_addresses?: VerifiableAddress[];
-}
-
-export interface RecoveryAddress {
-  id: string;
-  value: string;
-  via: string;
-}
-
-export interface VerifiableAddress {
-  id: string;
-  value: string;
-  verified: boolean;
-  via: string;
-  status: string;
 }
 
 export interface OrgMember {
