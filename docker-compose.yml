@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: userms
       POSTGRES_PASSWORD: userms_password
     ports:
-      - "5433:5432"
+      - "5434:5432"  # CHANGED: Fixed port conflict (was 5433, conflicted with kratos-postgres)
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -18,10 +18,30 @@ services:
       timeout: 5s
       retries: 5
 
+  # Add this new service for Kratos database
+  kratos-postgres:
+    image: postgres:15-alpine
+    container_name: userms-kratos-postgres
+    environment:
+      POSTGRES_DB: kratos
+      POSTGRES_USER: kratos
+      POSTGRES_PASSWORD: kratos_password
+    volumes:
+      - kratos_postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    networks:
+      - intranet  # CHANGED: Use your existing network name 'intranet' instead of 'userms-network'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kratos -d kratos"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   kratos-migrate:
     image: oryd/kratos:v1.0.0
     environment:
-      - DSN=postgres://userms:userms_password@postgres:5432/userms?sslmode=disable
+      - DSN=postgres://kratos:kratos_password@kratos-postgres:5432/kratos?sslmode=disable  # CHANGED: Point to kratos database
     volumes:
       - type: bind
         source: ./config/kratos
@@ -32,7 +52,7 @@ services:
     networks:
       - intranet
     depends_on:
-      postgres:
+      kratos-postgres:  # CHANGED: Depend on kratos-postgres instead of postgres
         condition: service_healthy
 
   kratos:
@@ -44,7 +64,7 @@ services:
       - '4434:4434' # admin
     restart: unless-stopped
     environment:
-      - DSN=postgres://userms:userms_password@postgres:5432/userms?sslmode=disable
+      - DSN=postgres://kratos:kratos_password@kratos-postgres:5432/kratos?sslmode=disable  # CHANGED: Point to kratos database
       - LOG_LEVEL=trace
       - GOOGLE_CLIENT_ID=165106799463-ijl47hp8fco7abh6hcsu453lb4kvqjlf.apps.googleusercontent.com
       - GOOGLE_CLIENT_SECRET=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
@@ -66,7 +86,7 @@ services:
     environment:
       - KRATOS_PUBLIC_URL=http://kratos:4433
       - KRATOS_ADMIN_URL=http://kratos:4434
-      - DATABASE_URL=postgres://userms:userms_password@postgres:5432/userms?sslmode=disable
+      - DATABASE_URL=postgres://userms:userms_password@postgres:5432/userms?sslmode=disable  # UNCHANGED: Still points to your backend database
       - PORT=3000
     volumes:
       - ./:/app
@@ -118,3 +138,4 @@ networks:
 
 volumes:
   postgres_data:
+  kratos_postgres_data:

@@ -22,8 +22,8 @@ curl -X POST http://localhost:4433/self-service/login?flow=$LOGIN_FLOW1 \
   -H "Content-Type: application/json" \
   -c admin_cookies.txt \
   -d '{
-    "identifier": "admin@company.com",
-    "password": "UniqueRiver@1313",
+    "identifier": "johndoe@gmail.com",
+    "password": "PasJohnCoe@134",
     "method": "password"
   }' | jq '.'
 

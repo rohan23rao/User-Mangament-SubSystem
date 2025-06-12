@@ -1,20 +1,23 @@
-import React, { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { 
-  Container, 
-  Paper, 
-  Title, 
-  Text, 
-  TextInput, 
-  Button, 
-  LoadingOverlay, 
+import React, { useState, useEffect } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import {
+  Container,
+  Title,
+  Text,
+  Paper,
+  Button,
+  TextInput,
+  Stack,
   Alert,
-  Stack
+  LoadingOverlay,
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import { IconAlertCircle, IconCheck } from '@tabler/icons-react';
 import { useAuth } from '../hooks/useAuth';
+
+// Use the correct Kratos URL from environment
+const KRATOS_PUBLIC_URL = process.env.REACT_APP_KRATOS_PUBLIC_URL || 'http://172.16.1.65:4433';
 
 interface VerificationFlow {
   id: string;
@@ -52,7 +55,7 @@ interface VerificationFlow {
 }
 
 export default function VerificationPage() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -66,20 +69,9 @@ export default function VerificationPage() {
     },
   });
 
-  // Only redirect if authenticated AND no verification flow is present
+  // Initialize verification flow
   useEffect(() => {
-    const flowId = searchParams.get('flow');
-    const code = searchParams.get('code');
-    
-    if (isAuthenticated && !flowId && !code) {
-      // Only redirect if there's no verification flow to process
-      navigate('/dashboard', { replace: true });
-    }
-  }, [isAuthenticated, navigate, searchParams]);
-
-  // Initialize or fetch verification flow
-  useEffect(() => {
-    if (hasInitialized) return; // Prevent multiple initializations
+    if (hasInitialized) return;
     
     const initializeFlow = async () => {
       const flowId = searchParams.get('flow');
@@ -87,14 +79,14 @@ export default function VerificationPage() {
       
       setHasInitialized(true);
       
-      if (flowId) {
+      if (code && flowId) {
+        // Auto-submit verification with code from email link
+        await handleVerificationWithCode(code, flowId);
+      } else if (flowId) {
         // Fetch existing flow
         await fetchVerificationFlow(flowId);
-      } else if (code) {
-        // Create flow and auto-submit with code
-        await createVerificationFlowWithCode(code);
       } else {
-        // Create new flow for manual email entry
+        // Create new flow for manual verification
         await createVerificationFlow();
       }
     };
@@ -102,11 +94,47 @@ export default function VerificationPage() {
     initializeFlow();
   }, [searchParams, hasInitialized]);
 
-  const fetchVerificationFlow = async (flowId: string, retryCount = 0) => {
+  const handleVerificationWithCode = async (code: string, flowId: string) => {
     try {
       setLoading(true);
       
-      const response = await fetch(`http://localhost:4433/self-service/verification/flows?id=${flowId}`, {
+      // First get the flow to get CSRF token
+      const flowResponse = await fetch(`${KRATOS_PUBLIC_URL}/self-service/verification/flows?id=${flowId}`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
+
+      if (!flowResponse.ok) {
+        throw new Error('Failed to get verification flow');
+      }
+
+      const flow = await flowResponse.json();
+      
+      // Submit verification with code
+      await submitVerificationFlow(flow, { code });
+      
+    } catch (error) {
+      console.error('Auto-verification error:', error);
+      notifications.show({
+        title: 'Verification Error',
+        message: 'Failed to verify automatically. Please try entering the code manually.',
+        color: 'red',
+      });
+      // Create a new flow for manual entry
+      await createVerificationFlow();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchVerificationFlow = async (flowId: string) => {
+    try {
+      setLoading(true);
+      
+      const response = await fetch(`${KRATOS_PUBLIC_URL}/self-service/verification/flows?id=${flowId}`, {
         method: 'GET',
         credentials: 'include',
         headers: {
@@ -118,39 +146,24 @@ export default function VerificationPage() {
         const flow = await response.json();
         setVerificationFlow(flow);
         
-        // Pre-fill email if available from flow
+        // Pre-fill email if available
         const emailNode = flow.ui?.nodes?.find((node: any) => node.attributes?.name === 'email');
         if (emailNode?.attributes?.value) {
           form.setValues({ email: emailNode.attributes.value });
         }
-      } else if (response.status === 410) {
-        // Flow expired, create a new one
+      } else if (response.status === 410 || response.status === 403) {
+        // Flow expired or CSRF error, create new flow
         notifications.show({
           title: 'Verification Link Expired',
           message: 'Creating a new verification flow.',
-          color: 'orange',
+          color: 'yellow',
         });
         await createVerificationFlow();
-      } else if (response.status === 403 && retryCount < 2) {
-        // CSRF error, clear cookies and retry
-        console.log('CSRF error, clearing cookies and retrying...');
-        
-        // Clear all cookies for this domain
-        document.cookie.split(";").forEach(function(c) { 
-          document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/"); 
-        });
-        
-        // Wait a bit and retry
-        setTimeout(() => {
-          fetchVerificationFlow(flowId, retryCount + 1);
-        }, 1000);
-        return;
       } else {
         throw new Error(`Failed to get verification flow: ${response.status}`);
       }
     } catch (error) {
       console.error('Error fetching verification flow:', error);
-      // Don't show notification here, just create new flow
       await createVerificationFlow();
     } finally {
       setLoading(false);
@@ -161,7 +174,7 @@ export default function VerificationPage() {
     try {
       setLoading(true);
       
-      const response = await fetch('http://localhost:4433/self-service/verification/browser', {
+      const response = await fetch(`${KRATOS_PUBLIC_URL}/self-service/verification/browser`, {
         method: 'GET',
         credentials: 'include',
         headers: {
@@ -172,54 +185,19 @@ export default function VerificationPage() {
       if (response.ok) {
         const flow = await response.json();
         setVerificationFlow(flow);
-        // Update URL with flow ID
-        navigate(`/verification?flow=${flow.id}`, { replace: true });
+        
+        // Update URL with new flow ID
+        setSearchParams({ flow: flow.id });
       } else {
-        throw new Error(`Failed to create verification flow: ${response.status}`);
+        throw new Error('Failed to create verification flow');
       }
     } catch (error) {
       console.error('Error creating verification flow:', error);
       notifications.show({
-        title: 'Verification Error',
-        message: 'Failed to create verification flow. Please try again.',
+        title: 'Error',
+        message: 'Failed to create verification flow. Please refresh the page.',
         color: 'red',
       });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const createVerificationFlowWithCode = async (code: string) => {
-    try {
-      setLoading(true);
-      
-      // First create a flow
-      const flowResponse = await fetch('http://localhost:4433/self-service/verification/browser', {
-        method: 'GET',
-        credentials: 'include',
-        headers: {
-          'Accept': 'application/json',
-        },
-      });
-      
-      if (!flowResponse.ok) {
-        throw new Error('Failed to create verification flow');
-      }
-      
-      const flow = await flowResponse.json();
-      setVerificationFlow(flow);
-      
-      // Auto-submit with the code
-      await submitVerificationFlow(flow, { code });
-      
-    } catch (error) {
-      console.error('Error with verification code:', error);
-      notifications.show({
-        title: 'Verification Error',
-        message: 'Failed to process verification code. Please try again.',
-        color: 'red',
-      });
-      await createVerificationFlow();
     } finally {
       setLoading(false);
     }
@@ -247,7 +225,6 @@ export default function VerificationPage() {
         (node: any) => node.attributes?.name === 'csrf_token'
       );
 
-      // Determine the submission type
       const isCodeSubmission = values.code && values.code.trim() !== '';
       const isEmailSubmission = values.email && values.email.trim() !== '';
       
@@ -267,10 +244,8 @@ export default function VerificationPage() {
       // Only include the field that has data
       if (isCodeSubmission) {
         body.code = values.code;
-        console.log('Submitting verification code:', values.code);
       } else if (isEmailSubmission) {
         body.email = values.email;
-        console.log('Submitting email for verification:', values.email);
       }
 
       // Always include CSRF token if available
@@ -293,23 +268,20 @@ export default function VerificationPage() {
       const result = await response.json();
 
       if (response.ok) {
-        // Check if this was a successful verification
         if (isCodeSubmission) {
           notifications.show({
             title: 'Email Verified',
             message: 'Your email has been successfully verified!',
             color: 'green',
           });
-          // Redirect to login or dashboard
+          // Redirect based on authentication status
           navigate(isAuthenticated ? '/dashboard' : '/login', { replace: true });
         } else {
-          // This was a request for new code
           notifications.show({
             title: 'Verification Code Sent',
             message: 'A new verification code has been sent to your email.',
             color: 'blue',
           });
-          // Update the flow
           setVerificationFlow(result);
         }
       } else {
@@ -421,7 +393,7 @@ export default function VerificationPage() {
               {hasCodeField ? 'Verify Email' : 'Send Verification Code'}
             </Button>
 
-            {hasCodeField && verificationFlow?.state === 'sent_email' && (
+            {hasCodeField && (
               <Button 
                 variant="subtle" 
                 fullWidth 

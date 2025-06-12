@@ -1,5 +1,6 @@
 # config/kratos/kratos.yml
-dsn: postgres://userms:userms_password@postgres:5432/userms?sslmode=disable
+# dsn: postgres://userms:userms_password@postgres:5432/userms?sslmode=disable
+dsn: postgres://kratos:kratos_password@kratos-postgres:5432/kratos?sslmode=disable
 
 serve:
   public:
@@ -163,6 +164,16 @@ identity:
     - id: default
       url: file:///etc/config/kratos/identity.schema.json
 
+# courier:
+#   smtp:
+#     connection_uri: smtps://test:test@mailslurper:1025/?skip_ssl_verify=true
+
+# Simple courier configuration - uses Kratos default templates
 courier:
   smtp:
-    connection_uri: smtps://test:test@mailslurper:1025/?skip_ssl_verify=true
+    connection_uri: smtp://172.16.1.65:25/?disable_starttls=true
+    from_name: "User Management System"
+    # from_address: "noreply@dev-auth01"
+    from_address: "userv6204@gmail.com"
+  
+  message_retries: 3
