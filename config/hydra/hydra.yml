@@ -1,0 +1,25 @@
+# Minimal Hydra v2.2.0 Configuration
+# Based on official quickstart - ONLY supported properties
+
+serve:
+  cookies:
+    same_site_mode: Lax
+
+urls:
+  self:
+    issuer: http://localhost:4444
+  consent: http://localhost:3000/consent
+  login: http://localhost:3000/login
+  logout: http://localhost:3000/logout
+
+secrets:
+  system:
+    - "this-is-the-primary-secret-change-me-in-production-must-be-32-chars-long"
+
+oidc:
+  subject_identifiers:
+    supported_types:
+      - pairwise
+      - public
+    pairwise:
+      salt: "youReallyNeedToChangeThisInProduction"

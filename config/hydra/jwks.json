@@ -1,0 +1,15 @@
+{
+  "keys": [
+    {
+      "use": "sig",
+      "kty": "RSA", 
+      "kid": "hydra-test-key",
+      "alg": "RS256",
+      "n": "0vx7agoebGcQSuuPiLJXZptN9nndrQmbPFRP_gdHPfFsP_w1lE6g3iWw5dQQ4BjWgGEwHPPqQHU1BJ_ot6hl8F_f5A7_9v_bHhWgNvAf0_vwNzLkOxBdEjVdCvOTvM_bZpBvDTOZcJ6yE7zKKl8BXS_2Zm5tHJlf7V5Nfg5Bz-Ql4PYpJ0zQzANzL1IpKN2QI4zCBsObEJmZzMrHEzfSdpzSzgKcZQkKBRPV1Jzc7vWMfpVPBqK6X8ScwJnV_P-Fb7ZZkBYLk7v8uFf_Qm9JDsOUvDhIHqm1fvKKCQ6_Hw9rZcADJfvP1MJLLcQAcJOFnCr2VBFnqwcQKzuECvSgHZnJqV4QfHkBvqMdRUZCGRLvVnJzKjOzKcJUZ-KkLXNBpzQPBCH8-gQ",
+      "e": "AQAB",
+      "d": "test-private-key-placeholder",
+      "p": "test-p-value", 
+      "q": "test-q-value"
+    }
+  ]
+}

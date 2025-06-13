@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"time"
+	"strings"
 
 	"github.com/gorilla/mux"
 	client "github.com/ory/kratos-client-go"
@@ -233,4 +235,51 @@ func (h *UserHandler) getUserOrganizations(userID string) ([]models.OrgMember, e
 	}
 
 	return orgs, nil
+}
+
+func (h *UserHandler) DebugAuth(w http.ResponseWriter, r *http.Request) {
+	logger.Info("Processing debug auth request")
+
+	// Try to get session without failing
+	session, err := h.authService.GetSessionFromRequest(r)
+	
+	debugInfo := map[string]interface{}{
+		"timestamp": time.Now().UTC(),
+		"headers": map[string]interface{}{
+			"authorization": r.Header.Get("Authorization"),
+			"cookie_count":  len(r.Cookies()),
+		},
+	}
+
+	if err != nil {
+		debugInfo["authenticated"] = false
+		debugInfo["error"] = err.Error()
+		
+		// Check cookies
+		cookies := make(map[string]string)
+		for _, cookie := range r.Cookies() {
+			if strings.Contains(cookie.Name, "kratos") {
+				cookies[cookie.Name] = "present (hidden)"
+			}
+		}
+		debugInfo["cookies"] = cookies
+	} else {
+		debugInfo["authenticated"] = true
+		debugInfo["user_id"] = session.Identity.Id
+		if traits, ok := session.Identity.Traits.(map[string]interface{}); ok {
+			if email, exists := traits["email"].(string); exists {
+				debugInfo["email"] = email
+			}
+		}
+		debugInfo["session_active"] = session.Active
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(debugInfo)
+	
+	if err != nil {
+		logger.Warning("Debug auth - not authenticated: %v", err)
+	} else {
+		logger.Success("Debug auth - authenticated user: %s", session.Identity.Id)
+	}
 }
