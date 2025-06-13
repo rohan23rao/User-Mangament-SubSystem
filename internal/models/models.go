@@ -26,6 +26,7 @@ type Organization struct {
 	ID          string                 `json:"id"`
 	DomainID    *string                `json:"domain_id"`
 	OrgID       *string                `json:"org_id"`
+	ParentID    *string                `json:"parent_id,omitempty"`  // NEW: For tenant->org relationship
 	OrgType     string                 `json:"org_type"`
 	Name        string                 `json:"name"`
 	Description string                 `json:"description"`
@@ -34,6 +35,13 @@ type Organization struct {
 	Members     []Member               `json:"members,omitempty"`
 	CreatedAt   time.Time              `json:"created_at"`
 	UpdatedAt   time.Time              `json:"updated_at"`
+
+	// NEW: Hierarchy fields
+	ParentName   *string       `json:"parent_name,omitempty"`    // For display
+	Children     []Organization `json:"children,omitempty"`      // For tree view
+	// Members      []Member      `json:"members,omitempty"`
+	MemberCount  int           `json:"member_count,omitempty"`
+
 }
 
 type Member struct {
@@ -61,9 +69,8 @@ type WebhookPayload struct {
 type CreateOrgRequest struct {
 	Name        string                 `json:"name"`
 	Description string                 `json:"description"`
-	OrgType     string                 `json:"org_type"`
-	DomainID    *string                `json:"domain_id"`
-	OrgID       *string                `json:"org_id"`
+	OrgType     string                 `json:"org_type"`      // 'organization' or 'tenant'
+	ParentID    *string                `json:"parent_id"`     // Required for tenants
 	Data        map[string]interface{} `json:"data"`
 }
 

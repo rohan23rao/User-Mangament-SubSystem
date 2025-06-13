@@ -30,16 +30,12 @@ func NewOrganizationHandler(authService *auth.Service, kratosAdmin *client.APICl
 }
 
 func (h *OrganizationHandler) CreateOrganization(w http.ResponseWriter, r *http.Request) {
-	logger.Info("Processing organization creation request")
-
 	session, err := h.authService.GetSessionFromRequest(r)
 	if err != nil {
 		logger.Auth("Unauthorized organization creation: %v", err)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-
-	logger.Auth("Organization creation authorized for user: %s", session.Identity.Id)
 
 	// Check if user has permission to create organizations
 	var canCreateOrgs bool
@@ -56,8 +52,6 @@ func (h *OrganizationHandler) CreateOrganization(w http.ResponseWriter, r *http.
 		return
 	}
 
-	logger.Auth("User %s has permission to create organizations", session.Identity.Id)
-
 	var req models.CreateOrgRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		logger.Error("Invalid request body for organization creation: %v", err)
@@ -66,20 +60,45 @@ func (h *OrganizationHandler) CreateOrganization(w http.ResponseWriter, r *http.
 	}
 
 	if req.Name == "" {
-		logger.Warning("Organization creation failed: name is required")
 		http.Error(w, "Organization name is required", http.StatusBadRequest)
 		return
 	}
 
-	if req.OrgType == "" {
-		req.OrgType = "organization"
+	// Validate org_type (domains are disabled)
+	validTypes := map[string]bool{"organization": true, "tenant": true}
+	if !validTypes[req.OrgType] {
+		http.Error(w, "Invalid org_type. Must be 'organization' or 'tenant'", http.StatusBadRequest)
+		return
 	}
 
-	// Validate org_type
-	validTypes := map[string]bool{"domain": true, "organization": true, "tenant": true}
-	if !validTypes[req.OrgType] {
-		logger.Warning("Invalid org_type: %s", req.OrgType)
-		http.Error(w, "Invalid org_type. Must be 'domain', 'organization', or 'tenant'", http.StatusBadRequest)
+	// Validate hierarchy rules
+	if req.OrgType == "tenant" {
+		if req.ParentID == nil {
+			http.Error(w, "Tenants must be created under an organization", http.StatusBadRequest)
+			return
+		}
+		
+		// Check if parent exists and is an organization
+		var parentType string
+		err = h.db.QueryRow("SELECT org_type FROM organizations WHERE id = $1", *req.ParentID).Scan(&parentType)
+		if err != nil {
+			http.Error(w, "Parent organization not found", http.StatusBadRequest)
+			return
+		}
+		if parentType != "organization" {
+			http.Error(w, "Tenants can only be created under organizations", http.StatusBadRequest)
+			return
+		}
+		
+		// Check if user has access to parent organization
+		if !h.isOrgMember(session.Identity.Id, *req.ParentID) {
+			http.Error(w, "You must be a member of the parent organization", http.StatusForbidden)
+			return
+		}
+	}
+
+	if req.OrgType == "organization" && req.ParentID != nil {
+		http.Error(w, "Organizations cannot be nested under other entities", http.StatusBadRequest)
 		return
 	}
 
@@ -87,15 +106,15 @@ func (h *OrganizationHandler) CreateOrganization(w http.ResponseWriter, r *http.
 		req.Data = make(map[string]interface{})
 	}
 
-	logger.Info("Creating organization '%s' for user %s", req.Name, session.Identity.Id)
+	logger.Info("Creating %s '%s' for user %s", req.OrgType, req.Name, session.Identity.Id)
 
 	orgID := uuid.New().String()
 	dataJSON, _ := json.Marshal(req.Data)
 
 	_, err = h.db.Exec(`
-		INSERT INTO organizations (id, domain_id, org_id, org_type, name, description, owner_id, data)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		orgID, req.DomainID, req.OrgID, req.OrgType, req.Name, req.Description, session.Identity.Id, dataJSON,
+		INSERT INTO organizations (id, org_type, name, description, parent_id, owner_id, data)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		orgID, req.OrgType, req.Name, req.Description, req.ParentID, session.Identity.Id, dataJSON,
 	)
 	if err != nil {
 		logger.Error("Failed to create organization in database: %v", err)
@@ -103,9 +122,7 @@ func (h *OrganizationHandler) CreateOrganization(w http.ResponseWriter, r *http.
 		return
 	}
 
-	logger.DB("Organization created with ID: %s", orgID)
-
-	// Add owner as 'owner' role
+	// Add creator as owner
 	_, err = h.db.Exec(`
 		INSERT INTO user_organization_links (user_id, organization_id, role)
 		VALUES ($1, $2, $3)`,
@@ -117,13 +134,12 @@ func (h *OrganizationHandler) CreateOrganization(w http.ResponseWriter, r *http.
 		return
 	}
 
-	logger.DB("Owner added as owner to organization %s", orgID)
 	h.saveUserProfile(&session.Identity)
 
+	// Build response
 	org := models.Organization{
 		ID:          orgID,
-		DomainID:    req.DomainID,
-		OrgID:       req.OrgID,
+		ParentID:    req.ParentID,
 		OrgType:     req.OrgType,
 		Name:        req.Name,
 		Description: req.Description,
@@ -137,12 +153,10 @@ func (h *OrganizationHandler) CreateOrganization(w http.ResponseWriter, r *http.
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(org)
 
-	logger.Success("Organization '%s' created successfully with ID: %s", req.Name, orgID)
+	logger.Success("%s '%s' created successfully with ID: %s", req.OrgType, req.Name, orgID)
 }
 
 func (h *OrganizationHandler) ListOrganizations(w http.ResponseWriter, r *http.Request) {
-	logger.Info("Processing list organizations request")
-
 	session, err := h.authService.GetSessionFromRequest(r)
 	if err != nil {
 		logger.Auth("Unauthorized list organizations: %v", err)
@@ -150,16 +164,21 @@ func (h *OrganizationHandler) ListOrganizations(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	logger.Auth("List organizations authorized for user: %s", session.Identity.Id)
-
+	// Get organizations and tenants where user is a member
 	rows, err := h.db.Query(`
-		SELECT o.id, o.domain_id, o.org_id, o.org_type, o.name, o.description, o.owner_id, o.data, o.created_at, o.updated_at
+		SELECT 
+			o.id, o.org_type, o.name, o.description, o.parent_id, o.owner_id, o.data, 
+			o.created_at, o.updated_at,
+			p.name as parent_name,
+			(SELECT COUNT(*) FROM user_organization_links WHERE organization_id = o.id) as member_count
 		FROM organizations o
+		LEFT JOIN organizations p ON o.parent_id = p.id
 		JOIN user_organization_links uol ON o.id = uol.organization_id
 		WHERE uol.user_id = $1
-	`, session.Identity.Id)
+		ORDER BY o.org_type ASC, o.name ASC`, session.Identity.Id)
+
 	if err != nil {
-		logger.Error("Failed to fetch organizations: %v", err)
+		logger.Error("Failed to query organizations: %v", err)
 		http.Error(w, "Failed to fetch organizations", http.StatusInternalServerError)
 		return
 	}
@@ -168,14 +187,25 @@ func (h *OrganizationHandler) ListOrganizations(w http.ResponseWriter, r *http.R
 	var organizations []models.Organization
 	for rows.Next() {
 		var org models.Organization
+		var parentID, ownerID, parentName sql.NullString
 		var dataJSON []byte
-		err := rows.Scan(
-			&org.ID, &org.DomainID, &org.OrgID, &org.OrgType, &org.Name, 
-			&org.Description, &org.OwnerID, &dataJSON, &org.CreatedAt, &org.UpdatedAt,
-		)
+
+		err := rows.Scan(&org.ID, &org.OrgType, &org.Name, &org.Description, 
+			&parentID, &ownerID, &dataJSON, &org.CreatedAt, &org.UpdatedAt,
+			&parentName, &org.MemberCount)
 		if err != nil {
 			logger.Warning("Error scanning organization row: %v", err)
 			continue
+		}
+
+		if parentID.Valid {
+			org.ParentID = &parentID.String
+		}
+		if ownerID.Valid {
+			org.OwnerID = &ownerID.String
+		}
+		if parentName.Valid {
+			org.ParentName = &parentName.String
 		}
 
 		if len(dataJSON) > 0 {
@@ -185,10 +215,89 @@ func (h *OrganizationHandler) ListOrganizations(w http.ResponseWriter, r *http.R
 		organizations = append(organizations, org)
 	}
 
-	logger.Success("Found %d organizations for user %s", len(organizations), session.Identity.Id)
+	logger.Info("Found %d organizations/tenants for user: %s", len(organizations), session.Identity.Id)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(organizations)
+}
+
+func (h *OrganizationHandler) GetOrganizationWithTenants(w http.ResponseWriter, r *http.Request) {
+	session, err := h.authService.GetSessionFromRequest(r)
+	if err != nil {
+		logger.Auth("Unauthorized get organization: %v", err)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(r)
+	orgID := vars["id"]
+
+	if !h.isOrgMember(session.Identity.Id, orgID) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Get organization details
+	var org models.Organization
+	var parentID, ownerID sql.NullString
+	var dataJSON []byte
+
+	err = h.db.QueryRow(`
+		SELECT id, org_type, name, description, parent_id, owner_id, data, created_at, updated_at
+		FROM organizations WHERE id = $1`, orgID).Scan(
+		&org.ID, &org.OrgType, &org.Name, &org.Description, 
+		&parentID, &ownerID, &dataJSON, &org.CreatedAt, &org.UpdatedAt)
+
+	if err == sql.ErrNoRows {
+		http.Error(w, "Organization not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		logger.Error("Failed to fetch organization: %v", err)
+		http.Error(w, "Failed to fetch organization", http.StatusInternalServerError)
+		return
+	}
+
+	if parentID.Valid {
+		org.ParentID = &parentID.String
+	}
+	if ownerID.Valid {
+		org.OwnerID = &ownerID.String
+	}
+	if len(dataJSON) > 0 {
+		json.Unmarshal(dataJSON, &org.Data)
+	}
+
+	// Get child tenants if this is an organization
+	if org.OrgType == "organization" {
+		tenantRows, err := h.db.Query(`
+			SELECT id, name, description, owner_id, created_at, updated_at,
+				(SELECT COUNT(*) FROM user_organization_links WHERE organization_id = o.id) as member_count
+			FROM organizations o
+			WHERE parent_id = $1 AND org_type = 'tenant'
+			ORDER BY name ASC`, orgID)
+
+		if err == nil {
+			defer tenantRows.Close()
+			for tenantRows.Next() {
+				var tenant models.Organization
+				var tenantOwnerID sql.NullString
+				err := tenantRows.Scan(&tenant.ID, &tenant.Name, &tenant.Description, 
+					&tenantOwnerID, &tenant.CreatedAt, &tenant.UpdatedAt, &tenant.MemberCount)
+				if err == nil {
+					tenant.OrgType = "tenant"
+					tenant.ParentID = &orgID
+					if tenantOwnerID.Valid {
+						tenant.OwnerID = &tenantOwnerID.String
+					}
+					org.Children = append(org.Children, tenant)
+				}
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(org)
 }
 
 func (h *OrganizationHandler) GetOrganization(w http.ResponseWriter, r *http.Request) {

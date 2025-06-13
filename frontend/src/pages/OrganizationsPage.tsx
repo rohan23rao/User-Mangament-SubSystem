@@ -1,3 +1,4 @@
+// frontend/src/pages/OrganizationsPage.tsx
 import React, { useState, useEffect } from 'react';
 import {
   Container,
@@ -18,49 +19,78 @@ import {
   Alert,
   ActionIcon,
   Avatar,
+  ThemeIcon,
+  Tabs,
+  SimpleGrid,
+  Divider,
+  Box,
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import { modals } from '@mantine/modals';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   IconPlus,
   IconEye,
   IconEdit,
   IconTrash,
-  IconShieldCheck,
-  IconShield,
-  IconCalendar,
   IconBuilding,
+  IconBuildingStore,
+  IconUsers,
+  IconCalendar,
+  IconHierarchy,
   IconInfoCircle,
+  IconChevronRight,
 } from '@tabler/icons-react';
 import { useAuth } from '../hooks/useAuth';
 import { ApiService } from '../services/api';
 import { Organization, CreateOrgRequest } from '../types/organization';
 
+interface GroupedOrganizations {
+  organizations: Organization[];
+  tenants: { [orgId: string]: Organization[] };
+}
+
 function OrganizationsPage() {
   const navigate = useNavigate();
-  const { user, loading: authLoading } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { user } = useAuth();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(false);
   const [createModalOpened, setCreateModalOpened] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [activeTab, setActiveTab] = useState<string>('hierarchy');
 
   const form = useForm<CreateOrgRequest>({
     initialValues: {
       name: '',
       description: '',
       org_type: 'organization',
+      parent_id: undefined,
     },
     validate: {
       name: (value: string) => (value.length < 2 ? 'Name must be at least 2 characters' : null),
-      description: (value: string | undefined) => (!value || value.length < 10 ? 'Description must be at least 10 characters' : null),
+      description: (value: string) => (value.length < 10 ? 'Description must be at least 10 characters' : null),
+      parent_id: (value, values) => {
+        if (values.org_type === 'tenant' && !value) {
+          return 'Parent organization is required for tenants';
+        }
+        return null;
+      },
     },
   });
 
   useEffect(() => {
     loadOrganizations();
   }, []);
+
+  useEffect(() => {
+    // Open create modal if ?create=true in URL
+    if (searchParams.get('create') === 'true') {
+      setCreateModalOpened(true);
+      setSearchParams({});
+    }
+  }, [searchParams]);
 
   const loadOrganizations = async () => {
     try {
@@ -69,7 +99,6 @@ function OrganizationsPage() {
       setOrganizations(data || []);
     } catch (error) {
       console.error('Failed to load organizations:', error);
-      setOrganizations([]);
       notifications.show({
         title: 'Error',
         message: 'Failed to load organizations',
@@ -80,13 +109,29 @@ function OrganizationsPage() {
     }
   };
 
+  const groupOrganizations = (): GroupedOrganizations => {
+    const orgs = organizations.filter(o => o.org_type === 'organization');
+    const tenants: { [orgId: string]: Organization[] } = {};
+    
+    organizations
+      .filter(o => o.org_type === 'tenant' && o.parent_id)
+      .forEach(tenant => {
+        if (!tenants[tenant.parent_id!]) {
+          tenants[tenant.parent_id!] = [];
+        }
+        tenants[tenant.parent_id!].push(tenant);
+      });
+
+    return { organizations: orgs, tenants };
+  };
+
   const handleCreateOrganization = async (values: CreateOrgRequest) => {
     try {
       setSubmitting(true);
       await ApiService.createOrganization(values);
       notifications.show({
         title: 'Success',
-        message: 'Organization created successfully',
+        message: `${values.org_type === 'organization' ? 'Organization' : 'Tenant'} created successfully`,
         color: 'green',
       });
       setCreateModalOpened(false);
@@ -105,7 +150,7 @@ function OrganizationsPage() {
 
   const handleDeleteOrganization = (org: Organization) => {
     modals.openConfirmModal({
-      title: 'Delete Organization',
+      title: `Delete ${org.org_type === 'organization' ? 'Organization' : 'Tenant'}`,
       children: (
         <Text size="sm">
           Are you sure you want to delete <strong>{org.name}</strong>? This action cannot be undone.
@@ -118,7 +163,7 @@ function OrganizationsPage() {
           await ApiService.deleteOrganization(org.id);
           notifications.show({
             title: 'Success',
-            message: 'Organization deleted successfully',
+            message: `${org.org_type === 'organization' ? 'Organization' : 'Tenant'} deleted successfully`,
             color: 'green',
           });
           loadOrganizations();
@@ -144,300 +189,354 @@ function OrganizationsPage() {
 
   const isAdmin = (orgId: string) => {
     const role = getUserRole(orgId);
-    return role === 'admin' || isOwner((organizations || []).find(o => o.id === orgId)!);
+    return role === 'admin' || role === 'owner';
   };
 
-  // UPDATED: Use the new permission field from the backend
   const canCreateOrganizations = () => {
     return user?.can_create_organizations || false;
   };
 
-  const getVerificationStatus = () => {
-    const emailAddress = user?.verifiable_addresses?.find(addr => addr.value === user?.email);
-    return emailAddress?.verified || false;
+  const getAvailableParents = () => {
+    return organizations
+      .filter(org => org.org_type === 'organization')
+      .map(org => ({
+        value: org.id,
+        label: org.name,
+      }));
   };
 
-  // Member View - Simple display of their organizations and account info
-  const renderMemberView = () => (
-    <Container size="lg" py="xl">
-      <Stack gap="xl">
-        {/* Account Summary */}
-        <Paper withBorder radius="md" p="xl">
-          <Group align="flex-start" gap="xl">
-            <Avatar size={80} color="blue" radius="md">
-              {user?.first_name?.charAt(0)?.toUpperCase() || user?.email?.charAt(0)?.toUpperCase()}
-            </Avatar>
-            <Stack gap="xs" style={{ flex: 1 }}>
-              <Title order={2}>{user?.first_name} {user?.last_name}</Title>
-              <Text c="dimmed" size="lg">{user?.email}</Text>
-              
-              <Group gap="md" mt="sm">
-                <Badge
-                  leftSection={getVerificationStatus() ? <IconShieldCheck size="0.8rem" /> : <IconShield size="0.8rem" />}
-                  color={getVerificationStatus() ? 'green' : 'orange'}
-                  variant="light"
-                >
-                  {getVerificationStatus() ? 'Verified' : 'Unverified'}
-                </Badge>
-                <Badge
-                  leftSection={<IconCalendar size="0.8rem" />}
-                  color="blue"
-                  variant="light"
-                >
-                  Joined {new Date(user?.created_at || '').toLocaleDateString()}
-                </Badge>
-              </Group>
-            </Stack>
-          </Group>
-        </Paper>
+  const getOrgIcon = (orgType: string, size = "1.2rem") => {
+    return orgType === 'organization' ? 
+      <IconBuilding size={size} /> : 
+      <IconBuildingStore size={size} />;
+  };
 
-        {/* Permission Notice - Show if user cannot create organizations */}
-        {!canCreateOrganizations() && (
-          <Alert
-            icon={<IconInfoCircle />}
-            title="Organization Creation"
-            color="blue"
+  const getOrgColor = (orgType: string) => {
+    return orgType === 'organization' ? 'blue' : 'green';
+  };
+
+  const getRoleColor = (role: string) => {
+    switch (role) {
+      case 'owner': return 'red';
+      case 'admin': return 'orange';
+      default: return 'blue';
+    }
+  };
+
+  const renderOrganizationCard = (org: Organization, isNested = false) => (
+    <Card 
+      key={org.id} 
+      withBorder 
+      p="lg" 
+      radius="md"
+      style={{
+        transform: isNested ? 'scale(0.95)' : 'none',
+        opacity: isNested ? 0.95 : 1,
+      }}
+    >
+      <Group justify="space-between" mb="sm">
+        <Group>
+          <Avatar color={getOrgColor(org.org_type)} radius="sm" size="md">
+            {getOrgIcon(org.org_type, "1.2rem")}
+          </Avatar>
+          <div>
+            <Text fw={500} size="lg">{org.name}</Text>
+            <Group gap="xs">
+              <Badge color={getOrgColor(org.org_type)} variant="light" size="sm">
+                {org.org_type}
+              </Badge>
+              <Badge 
+                color={getRoleColor(getUserRole(org.id))}
+                variant="light"
+                size="sm"
+              >
+                {getUserRole(org.id)}
+              </Badge>
+              {org.parent_name && (
+                <Badge variant="outline" size="sm" color="gray">
+                  under {org.parent_name}
+                </Badge>
+              )}
+            </Group>
+          </div>
+        </Group>
+
+        <Group gap="xs">
+          <ActionIcon
             variant="light"
+            color="blue"
+            onClick={() => navigate(`/organizations/${org.id}`)}
           >
-            You don't have permission to create organizations. Contact an administrator if you need to create a new organization.
-          </Alert>
-        )}
-
-        {/* My Organizations */}
-        <div>
-          <Group justify="space-between" mb="md">
-            <Title order={3}>My Organizations</Title>
-            <Badge color="blue" variant="outline">
-              {user?.organizations?.length || 0} organizations
-            </Badge>
-          </Group>
-
-          {!user?.organizations || user.organizations.length === 0 ? (
-            <Paper p="xl" radius="md" withBorder>
-              <Stack gap="md" align="center">
-                <IconBuilding size={48} stroke={1.5} color="gray" />
-                <div style={{ textAlign: 'center' }}>
-                  <Text size="lg" fw={500}>No Organizations</Text>
-                  <Text c="dimmed">You haven't joined any organizations yet.</Text>
-                </div>
-              </Stack>
-            </Paper>
-          ) : (
-            <Grid>
-              {user.organizations.map((orgMember) => (
-                <Grid.Col key={orgMember.org_id} span={{ base: 12, sm: 6, md: 4 }}>
-                  <Card shadow="sm" padding="lg" radius="md" withBorder>
-                    <Stack gap="sm">
-                      <Title order={4}>{orgMember.org_name}</Title>
-                      <Text size="sm" c="dimmed" lineClamp={2}>
-                        {orgMember.org_type} organization
-                      </Text>
-                    </Stack>
-
-                    <Group justify="space-between" mt="md">
-                      <Badge
-                        color={orgMember.role === 'owner' ? 'red' : orgMember.role === 'admin' ? 'green' : 'blue'}
-                        variant="light"
-                        size="sm"
-                      >
-                        {orgMember.role}
-                      </Badge>
-                      <Text size="xs" c="dimmed">
-                        Joined {new Date(orgMember.joined_at).toLocaleDateString()}
-                      </Text>
-                    </Group>
-
-                    <Button
-                      variant="light"
-                      size="sm"
-                      fullWidth
-                      mt="md"
-                      leftSection={<IconEye size="1rem" />}
-                      onClick={() => navigate(`/organizations/${orgMember.org_id}`)}
-                    >
-                      View Organization
-                    </Button>
-                  </Card>
-                </Grid.Col>
-              ))}
-            </Grid>
+            <IconEye size="1rem" />
+          </ActionIcon>
+          {isAdmin(org.id) && (
+            <ActionIcon
+              variant="light"
+              color="orange"
+              onClick={() => navigate(`/organizations/${org.id}?tab=settings`)}
+            >
+              <IconEdit size="1rem" />
+            </ActionIcon>
           )}
-        </div>
-      </Stack>
-    </Container>
-  );
-
-  // Admin View - Full organization management (only for users with permission)
-  const renderAdminView = () => (
-    <Container size="xl" py="xl">
-      <Group justify="space-between" mb="xl">
-        <div>
-          <Title order={1}>Organization Management</Title>
-          <Text c="dimmed" size="lg">
-            Create and manage organizations
-          </Text>
-        </div>
-        <Button
-          leftSection={<IconPlus size="1rem" />}
-          onClick={() => setCreateModalOpened(true)}
-        >
-          Create Organization
-        </Button>
+          {isOwner(org) && (
+            <ActionIcon
+              variant="light"
+              color="red"
+              onClick={() => handleDeleteOrganization(org)}
+            >
+              <IconTrash size="1rem" />
+            </ActionIcon>
+          )}
+        </Group>
       </Group>
 
-      {loading ? (
-        <Paper p="xl" radius="md" withBorder>
-          <LoadingOverlay visible={true} />
-        </Paper>
-      ) : (!organizations || organizations.length === 0) ? (
-        <Paper p="xl" radius="md" withBorder>
-          <Stack gap="md" align="center">
-            <IconBuilding size={48} stroke={1.5} color="gray" />
-            <div style={{ textAlign: 'center' }}>
-              <Text size="lg" fw={500}>No Organizations</Text>
-              <Text c="dimmed">Create your first organization to get started.</Text>
-            </div>
-            <Button
-              leftSection={<IconPlus size="1rem" />}
-              onClick={() => setCreateModalOpened(true)}
-            >
-              Create Organization
-            </Button>
-          </Stack>
-        </Paper>
-      ) : (
-        <Grid>
-          {organizations.map((org) => (
-            <Grid.Col key={org.id} span={{ base: 12, sm: 6, lg: 4 }}>
-              <Card shadow="sm" padding="lg" radius="md" withBorder>
-                <Stack gap="sm">
-                  <Title order={4}>{org.name}</Title>
-                  <Text size="sm" c="dimmed" lineClamp={2}>
-                    {org.description}
-                  </Text>
+      <Text size="sm" c="dimmed" mb="sm" lineClamp={2}>
+        {org.description || 'No description provided'}
+      </Text>
 
-                  <Group gap="xs">
-                    <Badge
-                      color={getUserRole(org.id) === 'owner' ? 'red' : getUserRole(org.id) === 'admin' ? 'green' : 'blue'}
-                      variant="light"
-                      size="sm"
-                    >
-                      {getUserRole(org.id)}
-                    </Badge>
-                    <Badge variant="outline" size="sm">
-                      {org.members?.length || 0} members
-                    </Badge>
-                  </Group>
-
-                  <Text size="xs" c="dimmed">
-                    Created {new Date(org.created_at).toLocaleDateString()}
-                  </Text>
-                </Stack>
-
-                <Group justify="space-between" mt="md">
-                  <Button
-                    variant="light"
-                    size="sm"
-                    leftSection={<IconEye size="1rem" />}
-                    onClick={() => navigate(`/organizations/${org.id}`)}
-                  >
-                    View Details
-                  </Button>
-
-                  <Group gap="xs">
-                    {isAdmin(org.id) && (
-                      <ActionIcon
-                        variant="light"
-                        color="blue"
-                        onClick={() => navigate(`/organizations/${org.id}?tab=settings`)}
-                      >
-                        <IconEdit size="1rem" />
-                      </ActionIcon>
-                    )}
-                    {isOwner(org) && (
-                      <ActionIcon
-                        variant="light"
-                        color="red"
-                        onClick={() => handleDeleteOrganization(org)}
-                      >
-                        <IconTrash size="1rem" />
-                      </ActionIcon>
-                    )}
-                  </Group>
-                </Group>
-              </Card>
-            </Grid.Col>
-          ))}
-        </Grid>
-      )}
-
-      {/* Create Organization Modal */}
-      <Modal
-        opened={createModalOpened}
-        onClose={() => setCreateModalOpened(false)}
-        title="Create New Organization"
-        size="md"
-      >
-        <form onSubmit={form.onSubmit(handleCreateOrganization)}>
-          <Stack gap="md">
-            <TextInput
-              label="Organization Name"
-              placeholder="Enter organization name"
-              {...form.getInputProps('name')}
-              required
-            />
-
-            <Select
-              label="Organization Type"
-              placeholder="Select type"
-              data={[
-                { value: 'organization', label: 'Organization' },
-                { value: 'domain', label: 'Domain' },
-                { value: 'tenant', label: 'Tenant' },
-              ]}
-              {...form.getInputProps('org_type')}
-              required
-            />
-
-            <Textarea
-              label="Description"
-              placeholder="Describe your organization"
-              {...form.getInputProps('description')}
-              minRows={3}
-              required
-            />
-
-            <Group justify="flex-end" mt="md">
-              <Button
-                variant="subtle"
-                onClick={() => setCreateModalOpened(false)}
-                disabled={submitting}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" loading={submitting}>
-                Create Organization
-              </Button>
-            </Group>
-          </Stack>
-        </form>
-      </Modal>
-    </Container>
+      <Group justify="space-between" mt="auto">
+        <Group gap="lg">
+          <Group gap="xs">
+            <IconUsers size="0.9rem" />
+            <Text size="sm">{org.member_count || 0} members</Text>
+          </Group>
+          <Group gap="xs">
+            <IconCalendar size="0.9rem" />
+            <Text size="sm">{new Date(org.created_at).toLocaleDateString()}</Text>
+          </Group>
+        </Group>
+      </Group>
+    </Card>
   );
 
-  // Show loading state
-  if (authLoading || (loading && !user)) {
+  const renderHierarchicalView = () => {
+    const grouped = groupOrganizations();
+    
     return (
-      <Container size="lg" py="xl">
-        <Paper p="xl" radius="md" withBorder>
-          <LoadingOverlay visible={true} />
-        </Paper>
+      <Stack gap="xl">
+        {grouped.organizations.map((org) => (
+          <div key={org.id}>
+            {renderOrganizationCard(org)}
+            
+            {/* Show tenants under this organization */}
+            {grouped.tenants[org.id] && grouped.tenants[org.id].length > 0 && (
+              <Box style={{ marginLeft: '20px', marginTop: '15px' }}>
+                <Group gap="xs" mb="sm">
+                  <IconChevronRight size="1rem" color="var(--mantine-color-gray-6)" />
+                  <Text size="sm" c="dimmed" fw={500}>
+                    {grouped.tenants[org.id].length} tenant{grouped.tenants[org.id].length === 1 ? '' : 's'} under {org.name}
+                  </Text>
+                </Group>
+                <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+                  {grouped.tenants[org.id].map((tenant) => (
+                    renderOrganizationCard(tenant, true)
+                  ))}
+                </SimpleGrid>
+              </Box>
+            )}
+          </div>
+        ))}
+        
+        {grouped.organizations.length === 0 && (
+          <Paper p="xl" radius="md" withBorder>
+            <Stack align="center" gap="md">
+              <ThemeIcon size="xl" color="gray" variant="light">
+                <IconBuilding size="2rem" />
+              </ThemeIcon>
+              <div style={{ textAlign: 'center' }}>
+                <Text size="lg" fw={500}>No organizations yet</Text>
+                <Text size="sm" c="dimmed">
+                  Create your first organization to get started
+                </Text>
+              </div>
+              {canCreateOrganizations() && (
+                <Button
+                  leftSection={<IconPlus size="1rem" />}
+                  onClick={() => setCreateModalOpened(true)}
+                >
+                  Create Organization
+                </Button>
+              )}
+            </Stack>
+          </Paper>
+        )}
+      </Stack>
+    );
+  };
+
+  const renderGridView = () => {
+    const filteredOrgs = activeTab === 'organizations' 
+      ? organizations.filter(org => org.org_type === 'organization')
+      : activeTab === 'tenants'
+      ? organizations.filter(org => org.org_type === 'tenant')
+      : organizations;
+
+    return (
+      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="lg">
+        {filteredOrgs.map((org) => renderOrganizationCard(org))}
+      </SimpleGrid>
+    );
+  };
+
+  const getTabCount = (type?: string) => {
+    if (type === 'organizations') {
+      return organizations.filter(org => org.org_type === 'organization').length;
+    }
+    if (type === 'tenants') {
+      return organizations.filter(org => org.org_type === 'tenant').length;
+    }
+    return organizations.length;
+  };
+
+  if (loading) {
+    return (
+      <Container size="xl" py="xl">
+        <LoadingOverlay visible={true} />
       </Container>
     );
   }
 
-  // UPDATED: Use permission-based view selection
-  return canCreateOrganizations() ? renderAdminView() : renderMemberView();
+  return (
+    <Container size="xl" py="xl">
+      <Stack gap="lg">
+        {/* Header */}
+        <Group justify="space-between">
+          <div>
+            <Title order={1}>Organizations & Tenants</Title>
+            <Text c="dimmed" mt="xs">
+              Manage your organizations and tenant projects
+            </Text>
+          </div>
+          {canCreateOrganizations() && (
+            <Button
+              leftSection={<IconPlus size="1rem" />}
+              onClick={() => setCreateModalOpened(true)}
+            >
+              Create New
+            </Button>
+          )}
+        </Group>
+
+        {/* Info Alert */}
+        <Alert color="blue" icon={<IconInfoCircle size="1rem" />}>
+          <Text size="sm">
+            <strong>Organizations</strong> are top-level workspaces. <strong>Tenants</strong> are projects within organizations.
+            You can switch between them using the workspace selector in the header.
+          </Text>
+        </Alert>
+
+        {/* Tabs */}
+        <Tabs value={activeTab} onChange={(value) => setActiveTab(value || 'hierarchy')}>
+          <Tabs.List>
+            <Tabs.Tab value="hierarchy" leftSection={<IconHierarchy size="0.9rem" />}>
+              Hierarchy View
+            </Tabs.Tab>
+            <Tabs.Tab value="all" leftSection={<IconBuilding size="0.9rem" />}>
+              All ({getTabCount()})
+            </Tabs.Tab>
+            <Tabs.Tab value="organizations" leftSection={<IconBuilding size="0.9rem" />}>
+              Organizations ({getTabCount('organizations')})
+            </Tabs.Tab>
+            <Tabs.Tab value="tenants" leftSection={<IconBuildingStore size="0.9rem" />}>
+              Tenants ({getTabCount('tenants')})
+            </Tabs.Tab>
+          </Tabs.List>
+
+          <Tabs.Panel value="hierarchy" pt="lg">
+            {renderHierarchicalView()}
+          </Tabs.Panel>
+
+          <Tabs.Panel value="all" pt="lg">
+            {renderGridView()}
+          </Tabs.Panel>
+
+          <Tabs.Panel value="organizations" pt="lg">
+            {renderGridView()}
+          </Tabs.Panel>
+
+          <Tabs.Panel value="tenants" pt="lg">
+            {renderGridView()}
+          </Tabs.Panel>
+        </Tabs>
+
+        {/* Create Organization/Tenant Modal */}
+        <Modal
+          opened={createModalOpened}
+          onClose={() => setCreateModalOpened(false)}
+          title={
+            <Group gap="xs">
+              <ThemeIcon size="sm" variant="light" color="blue">
+                <IconPlus size="0.8rem" />
+              </ThemeIcon>
+              <Text fw={500}>
+                Create {form.values.org_type === 'organization' ? 'Organization' : 'Tenant'}
+              </Text>
+            </Group>
+          }
+          size="md"
+        >
+          <form onSubmit={form.onSubmit(handleCreateOrganization)}>
+            <Stack gap="md">
+              <Select
+                label="Type"
+                placeholder="Select type"
+                data={[
+                  { value: 'organization', label: 'Organization - Top-level workspace' },
+                  { value: 'tenant', label: 'Tenant - Project under organization' },
+                ]}
+                value={form.values.org_type}
+                onChange={(value) => {
+                  form.setFieldValue('org_type', value as 'organization' | 'tenant');
+                  if (value === 'organization') {
+                    form.setFieldValue('parent_id', undefined);
+                  }
+                }}
+                required
+              />
+
+              {form.values.org_type === 'tenant' && (
+                <Select
+                  label="Parent Organization"
+                  placeholder="Select parent organization"
+                  data={getAvailableParents()}
+                  {...form.getInputProps('parent_id')}
+                  required
+                />
+              )}
+
+              <TextInput
+                label={`${form.values.org_type === 'organization' ? 'Organization' : 'Tenant'} Name`}
+                placeholder={`Enter ${form.values.org_type === 'organization' ? 'organization' : 'tenant'} name`}
+                {...form.getInputProps('name')}
+                required
+              />
+
+              <Textarea
+                label="Description"
+                placeholder="Describe your organization or tenant"
+                {...form.getInputProps('description')}
+                minRows={3}
+                required
+              />
+
+              <Group justify="flex-end" mt="md">
+                <Button
+                  variant="subtle"
+                  onClick={() => setCreateModalOpened(false)}
+                  disabled={submitting}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" loading={submitting}>
+                  Create {form.values.org_type === 'organization' ? 'Organization' : 'Tenant'}
+                </Button>
+              </Group>
+            </Stack>
+          </form>
+        </Modal>
+      </Stack>
+    </Container>
+  );
 }
 
 export default OrganizationsPage;

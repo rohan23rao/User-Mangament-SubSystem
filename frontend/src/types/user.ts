@@ -1,11 +1,13 @@
+// frontend/src/types/user.ts
 export interface User {
   id: string;
   email: string;
+  email_verified: boolean;
   first_name: string;
   last_name: string;
   time_zone: string;
   ui_mode: string;
-  can_create_organizations: boolean; // ADDED: New permission field
+  can_create_organizations: boolean;
   traits: {
     email: string;
     name?: {
@@ -31,7 +33,8 @@ export interface User {
 export interface OrgMember {
   org_id: string;
   org_name: string;
-  org_type: string;
-  role: string;
+  org_type: 'organization' | 'tenant';
+  role: 'owner' | 'admin' | 'member';
   joined_at: string;
+  parent_name?: string;
 }

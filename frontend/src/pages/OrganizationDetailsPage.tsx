@@ -1,64 +1,65 @@
+// frontend/src/pages/OrganizationDetailsPage.tsx
 import React, { useState, useEffect } from 'react';
-import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Container,
   Title,
   Text,
-  Paper,
-  Tabs,
-  Group,
   Button,
+  Paper,
   Stack,
+  Group,
   Badge,
   Avatar,
   ActionIcon,
+  Table,
+  Menu,
   Modal,
   TextInput,
   Select,
-  Table,
-  LoadingOverlay,
+  Tabs,
   Alert,
   Card,
-  Divider,
-  Box,
-  Menu,
   ThemeIcon,
+  LoadingOverlay,
+  SimpleGrid,
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
+import { modals } from '@mantine/modals';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
-  IconSettings,
+  IconArrowLeft,
   IconUsers,
+  IconSettings,
   IconPlus,
   IconDots,
   IconEdit,
   IconTrash,
-  IconCrown,
-  IconMail,
-  IconCalendar,
-  IconBuilding,
-  IconArrowLeft,
   IconUserPlus,
+  IconCrown,
   IconShield,
+  IconUser,
+  IconBuilding,
+  IconBuildingStore,
+  IconInfoCircle,
+  IconChevronRight,
 } from '@tabler/icons-react';
+import { useAuth } from '../hooks/useAuth';
 import { ApiService } from '../services/api';
 import { Organization, Member, InviteUserRequest, UpdateMemberRoleRequest } from '../types/organization';
-import { useAuth } from '../hooks/useAuth';
-import { modals } from '@mantine/modals';
 
 export default function OrganizationDetailsPage() {
+  const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
   const { user } = useAuth();
-  
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
-  const [membersLoading, setMembersLoading] = useState(false);
   const [inviteModalOpened, setInviteModalOpened] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  
+  const [tenants, setTenants] = useState<Organization[]>([]);
+
   const activeTab = searchParams.get('tab') || 'overview';
 
   const inviteForm = useForm<InviteUserRequest>({
@@ -68,7 +69,6 @@ export default function OrganizationDetailsPage() {
     },
     validate: {
       email: (value) => (/^\S+@\S+$/.test(value) ? null : 'Invalid email'),
-      role: (value) => (['admin', 'member'].includes(value) ? null : 'Invalid role'),
     },
   });
 
@@ -76,57 +76,55 @@ export default function OrganizationDetailsPage() {
     if (id) {
       loadOrganization();
       loadMembers();
+      loadTenants();
     }
   }, [id]);
 
   const loadOrganization = async () => {
     if (!id) return;
-    
     try {
-      setLoading(true);
       const data = await ApiService.getOrganization(id);
       setOrganization(data);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Failed to load organization:', error);
       notifications.show({
         title: 'Error',
         message: 'Failed to load organization details',
         color: 'red',
       });
-      navigate('/organizations');
-    } finally {
-      setLoading(false);
     }
   };
 
   const loadMembers = async () => {
     if (!id) return;
-    
     try {
-      setMembersLoading(true);
       const data = await ApiService.getOrganizationMembers(id);
-      setMembers(data || []);
-    } catch (error: any) {
+      setMembers(data);
+    } catch (error) {
       console.error('Failed to load members:', error);
-      notifications.show({
-        title: 'Error',
-        message: 'Failed to load organization members',
-        color: 'red',
-      });
     } finally {
-      setMembersLoading(false);
+      setLoading(false);
     }
   };
 
-  const handleInviteUser = async (values: InviteUserRequest) => {
+  const loadTenants = async () => {
+    if (!id || !organization || organization.org_type !== 'organization') return;
+    try {
+      const data = await ApiService.getOrganizationWithTenants(id);
+      setTenants(data.children || []);
+    } catch (error) {
+      console.error('Failed to load tenants:', error);
+    }
+  };
+
+  const handleInviteMember = async (values: InviteUserRequest) => {
     if (!id) return;
-    
     try {
       setSubmitting(true);
       await ApiService.addOrganizationMember(id, values);
       notifications.show({
         title: 'Success',
-        message: `User ${values.email} has been invited to the organization`,
+        message: 'Member invited successfully',
         color: 'green',
       });
       setInviteModalOpened(false);
@@ -135,7 +133,7 @@ export default function OrganizationDetailsPage() {
     } catch (error: any) {
       notifications.show({
         title: 'Error',
-        message: error.response?.data?.message || 'Failed to invite user',
+        message: error.response?.data?.message || 'Failed to invite member',
         color: 'red',
       });
     } finally {
@@ -145,7 +143,6 @@ export default function OrganizationDetailsPage() {
 
   const handleRemoveMember = (member: Member) => {
     if (!id) return;
-    
     modals.openConfirmModal({
       title: 'Remove Member',
       children: (
@@ -177,7 +174,6 @@ export default function OrganizationDetailsPage() {
 
   const handleUpdateMemberRole = async (member: Member, newRole: 'admin' | 'member') => {
     if (!id) return;
-    
     try {
       await ApiService.updateMemberRole(id, member.user_id, { role: newRole });
       notifications.show({
@@ -212,6 +208,30 @@ export default function OrganizationDetailsPage() {
     return isAdmin();
   };
 
+  const getRoleIcon = (role: string) => {
+    switch (role) {
+      case 'owner': return <IconCrown size="0.9rem" />;
+      case 'admin': return <IconShield size="0.9rem" />;
+      default: return <IconUser size="0.9rem" />;
+    }
+  };
+
+  const getRoleColor = (role: string) => {
+    switch (role) {
+      case 'owner': return 'red';
+      case 'admin': return 'orange';
+      default: return 'blue';
+    }
+  };
+
+  const getOrgIcon = (orgType: string) => {
+    return orgType === 'organization' ? <IconBuilding size="1rem" /> : <IconBuildingStore size="1rem" />;
+  };
+
+  const getOrgColor = (orgType: string) => {
+    return orgType === 'organization' ? 'blue' : 'green';
+  };
+
   if (loading) {
     return (
       <Container size="xl" py="xl">
@@ -243,8 +263,8 @@ export default function OrganizationDetailsPage() {
           >
             <IconArrowLeft size="1.2rem" />
           </ActionIcon>
-          <Avatar color="blue" radius="md">
-            {organization.name.charAt(0).toUpperCase()}
+          <Avatar color={getOrgColor(organization.org_type)} radius="md">
+            {getOrgIcon(organization.org_type)}
           </Avatar>
           <div style={{ flex: 1 }}>
             <Group gap="xs">
@@ -256,10 +276,20 @@ export default function OrganizationDetailsPage() {
               )}
             </Group>
             <Group gap="md" mt="xs">
-              <Badge variant="light">{organization.org_type}</Badge>
+              <Badge color={getOrgColor(organization.org_type)} variant="light">
+                {organization.org_type}
+              </Badge>
+              <Badge color={getRoleColor(getUserRole())} variant="outline">
+                {getUserRole()}
+              </Badge>
               <Badge color="blue" variant="outline">
                 {members.length} members
               </Badge>
+              {organization.parent_name && (
+                <Badge variant="outline" color="gray">
+                  under {organization.parent_name}
+                </Badge>
+              )}
               <Text size="sm" c="dimmed">
                 Created {new Date(organization.created_at).toLocaleDateString()}
               </Text>
@@ -270,12 +300,17 @@ export default function OrganizationDetailsPage() {
         {/* Tabs */}
         <Tabs value={activeTab} onChange={(value) => navigate(`/organizations/${id}?tab=${value}`)}>
           <Tabs.List>
-            <Tabs.Tab value="overview" leftSection={<IconBuilding size="0.9rem" />}>
+            <Tabs.Tab value="overview" leftSection={<IconInfoCircle size="0.9rem" />}>
               Overview
             </Tabs.Tab>
             <Tabs.Tab value="members" leftSection={<IconUsers size="0.9rem" />}>
               Members ({members.length})
             </Tabs.Tab>
+            {organization.org_type === 'organization' && (
+              <Tabs.Tab value="tenants" leftSection={<IconBuildingStore size="0.9rem" />}>
+                Tenants ({tenants.length})
+              </Tabs.Tab>
+            )}
             {isAdmin() && (
               <Tabs.Tab value="settings" leftSection={<IconSettings size="0.9rem" />}>
                 Settings
@@ -293,55 +328,67 @@ export default function OrganizationDetailsPage() {
                 </Text>
               </Card>
 
-              <Card withBorder p="lg">
-                <Title order={4} mb="md">Organization Details</Title>
-                <Stack gap="sm">
-                  <Group>
-                    <Text fw={500} w={120}>Type:</Text>
-                    <Badge variant="light">{organization.org_type}</Badge>
+              <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="lg">
+                <Card withBorder p="lg">
+                  <Group gap="md">
+                    <ThemeIcon size="xl" color="blue" variant="light">
+                      <IconUsers size="1.5rem" />
+                    </ThemeIcon>
+                    <div>
+                      <Text size="xl" fw={700}>{members.length}</Text>
+                      <Text size="sm" c="dimmed">Members</Text>
+                    </div>
                   </Group>
-                  <Group>
-                    <Text fw={500} w={120}>Members:</Text>
-                    <Text>{members.length} members</Text>
+                </Card>
+
+                {organization.org_type === 'organization' && (
+                  <Card withBorder p="lg">
+                    <Group gap="md">
+                      <ThemeIcon size="xl" color="green" variant="light">
+                        <IconBuildingStore size="1.5rem" />
+                      </ThemeIcon>
+                      <div>
+                        <Text size="xl" fw={700}>{tenants.length}</Text>
+                        <Text size="sm" c="dimmed">Tenants</Text>
+                      </div>
+                    </Group>
+                  </Card>
+                )}
+
+                <Card withBorder p="lg">
+                  <Group gap="md">
+                    <ThemeIcon size="xl" color="orange" variant="light">
+                      <IconSettings size="1.5rem" />
+                    </ThemeIcon>
+                    <div>
+                      <Text size="xl" fw={700}>{getUserRole()}</Text>
+                      <Text size="sm" c="dimmed">Your Role</Text>
+                    </div>
                   </Group>
-                  <Group>
-                    <Text fw={500} w={120}>Created:</Text>
-                    <Text>{new Date(organization.created_at).toLocaleDateString()}</Text>
-                  </Group>
-                  <Group>
-                    <Text fw={500} w={120}>Your Role:</Text>
-                    <Badge color={getUserRole() === 'admin' ? 'green' : 'blue'}>
-                      {getUserRole()}
-                    </Badge>
-                  </Group>
-                </Stack>
-              </Card>
+                </Card>
+              </SimpleGrid>
             </Stack>
           </Tabs.Panel>
 
           {/* Members Tab */}
           <Tabs.Panel value="members" pt="lg">
             <Card withBorder>
-              <Group justify="space-between" mb="lg">
-                <Title order={4}>Organization Members</Title>
+              <Group justify="space-between" mb="md">
+                <Title order={4}>Members</Title>
                 {canManageMembers() && (
                   <Button
                     leftSection={<IconUserPlus size="1rem" />}
                     onClick={() => setInviteModalOpened(true)}
                   >
-                    Invite User
+                    Invite Member
                   </Button>
                 )}
               </Group>
 
-              {membersLoading ? (
-                <LoadingOverlay visible={true} />
-              ) : members.length === 0 ? (
-                <Text c="dimmed" ta="center" py="xl">
-                  No members found in this organization.
-                </Text>
+              {members.length === 0 ? (
+                <Text c="dimmed" ta="center" py="xl">No members found</Text>
               ) : (
-                <Table striped highlightOnHover>
+                <Table>
                   <Table.Thead>
                     <Table.Tr>
                       <Table.Th>Member</Table.Th>
@@ -355,23 +402,23 @@ export default function OrganizationDetailsPage() {
                       <Table.Tr key={member.user_id}>
                         <Table.Td>
                           <Group gap="sm">
-                            <Avatar size="sm" color="blue">
-                              {member.email.charAt(0).toUpperCase()}
+                            <Avatar size="sm" color="blue" radius="xl">
+                              {member.first_name?.charAt(0) || member.email.charAt(0)}
                             </Avatar>
                             <div>
-                              <Text fw={500} size="sm">
-                                {member.first_name && member.last_name 
-                                  ? `${member.first_name} ${member.last_name}`
-                                  : member.email
-                                }
+                              <Text size="sm" fw={500}>
+                                {member.first_name} {member.last_name}
                               </Text>
-                              <Text c="dimmed" size="xs">{member.email}</Text>
+                              <Text size="xs" c="dimmed">
+                                {member.email}
+                              </Text>
                             </div>
                           </Group>
                         </Table.Td>
                         <Table.Td>
-                          <Badge 
-                            color={member.role === 'admin' ? 'green' : 'blue'}
+                          <Badge
+                            leftSection={getRoleIcon(member.role)}
+                            color={getRoleColor(member.role)}
                             variant="light"
                           >
                             {member.role}
@@ -384,7 +431,7 @@ export default function OrganizationDetailsPage() {
                         </Table.Td>
                         {canManageMembers() && (
                           <Table.Td>
-                            {member.user_id !== user?.id && (
+                            {member.role !== 'owner' && member.user_id !== user?.id && (
                               <Menu shadow="md" width={200}>
                                 <Menu.Target>
                                   <ActionIcon variant="subtle">
@@ -403,7 +450,7 @@ export default function OrganizationDetailsPage() {
                                   )}
                                   {member.role !== 'member' && (
                                     <Menu.Item
-                                      leftSection={<IconUsers size="0.9rem" />}
+                                      leftSection={<IconUser size="0.9rem" />}
                                       onClick={() => handleUpdateMemberRole(member, 'member')}
                                     >
                                       Make Member
@@ -411,11 +458,11 @@ export default function OrganizationDetailsPage() {
                                   )}
                                   <Menu.Divider />
                                   <Menu.Item
-                                    color="red"
                                     leftSection={<IconTrash size="0.9rem" />}
+                                    color="red"
                                     onClick={() => handleRemoveMember(member)}
                                   >
-                                    Remove from Organization
+                                    Remove Member
                                   </Menu.Item>
                                 </Menu.Dropdown>
                               </Menu>
@@ -430,56 +477,91 @@ export default function OrganizationDetailsPage() {
             </Card>
           </Tabs.Panel>
 
-          {/* Settings Tab */}
+          {/* Tenants Tab (only for organizations) */}
+          {organization.org_type === 'organization' && (
+            <Tabs.Panel value="tenants" pt="lg">
+              <Card withBorder>
+                <Group justify="space-between" mb="md">
+                  <Title order={4}>Tenants under {organization.name}</Title>
+                  {canManageMembers() && (
+                    <Button
+                      leftSection={<IconPlus size="1rem" />}
+                      onClick={() => navigate('/organizations?create=true')}
+                    >
+                      Create Tenant
+                    </Button>
+                  )}
+                </Group>
+
+                {tenants.length === 0 ? (
+                  <Stack align="center" gap="md" py="xl">
+                    <ThemeIcon size="xl" color="gray" variant="light">
+                      <IconBuildingStore size="2rem" />
+                    </ThemeIcon>
+                    <div style={{ textAlign: 'center' }}>
+                      <Text size="lg" fw={500}>No tenants yet</Text>
+                      <Text size="sm" c="dimmed">
+                        Create tenant projects under this organization
+                      </Text>
+                    </div>
+                  </Stack>
+                ) : (
+                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                    {tenants.map((tenant) => (
+                      <Card key={tenant.id} withBorder p="md" style={{ cursor: 'pointer' }}
+                            onClick={() => navigate(`/organizations/${tenant.id}`)}>
+                        <Group justify="space-between">
+                          <Group>
+                            <Avatar color="green" size="sm">
+                              <IconBuildingStore size="1rem" />
+                            </Avatar>
+                            <div>
+                              <Text fw={500}>{tenant.name}</Text>
+                              <Text size="xs" c="dimmed" lineClamp={1}>
+                                {tenant.description}
+                              </Text>
+                            </div>
+                          </Group>
+                          <IconChevronRight size="1rem" />
+                        </Group>
+                      </Card>
+                    ))}
+                  </SimpleGrid>
+                )}
+              </Card>
+            </Tabs.Panel>
+          )}
+
+          {/* Settings Tab (admin only) */}
           {isAdmin() && (
             <Tabs.Panel value="settings" pt="lg">
-              <Card withBorder p="lg">
+              <Card withBorder>
                 <Title order={4} mb="md">Organization Settings</Title>
-                <Text c="dimmed" mb="lg">
-                  Manage organization settings and configuration.
+                <Text c="dimmed">
+                  Organization settings and configuration options will be available here.
                 </Text>
-                
-                <Alert color="blue" mb="lg">
-                  Organization settings coming soon. For now, you can manage members in the Members tab.
-                </Alert>
-
-                {isOwner() && (
-                  <Group>
-                    <Button
-                      color="red"
-                      variant="light"
-                      leftSection={<IconTrash size="1rem" />}
-                    >
-                      Delete Organization
-                    </Button>
-                  </Group>
-                )}
               </Card>
             </Tabs.Panel>
           )}
         </Tabs>
       </Stack>
 
-      {/* Invite User Modal */}
+      {/* Invite Member Modal */}
       <Modal
         opened={inviteModalOpened}
         onClose={() => setInviteModalOpened(false)}
-        title="Invite User to Organization"
-        size="md"
+        title="Invite Member"
       >
-        <form onSubmit={inviteForm.onSubmit(handleInviteUser)}>
+        <form onSubmit={inviteForm.onSubmit(handleInviteMember)}>
           <Stack gap="md">
             <TextInput
-              label="Email Address"
-              placeholder="user@example.com"
+              label="Email"
+              placeholder="Enter email address"
               {...inviteForm.getInputProps('email')}
               required
-              leftSection={<IconMail size="1rem" />}
             />
-
             <Select
               label="Role"
-              placeholder="Select role"
               data={[
                 { value: 'member', label: 'Member' },
                 { value: 'admin', label: 'Admin' },
@@ -487,10 +569,9 @@ export default function OrganizationDetailsPage() {
               {...inviteForm.getInputProps('role')}
               required
             />
-
-            <Group justify="flex-end" mt="md">
+            <Group justify="flex-end" gap="sm">
               <Button
-                variant="subtle"
+                variant="outline"
                 onClick={() => setInviteModalOpened(false)}
                 disabled={submitting}
               >

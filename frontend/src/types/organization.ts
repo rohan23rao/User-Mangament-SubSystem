@@ -1,62 +1,57 @@
-// Base organization interface matching your API
+// frontend/src/types/organization.ts
 export interface Organization {
   id: string;
+  parent_id?: string;
+  org_type: 'organization' | 'tenant';
   name: string;
-  description?: string;
+  description: string;
+  owner_id?: string;
+  is_default?: boolean;
+  data: Record<string, any>;
   created_at: string;
   updated_at: string;
-  owner_id?: string;
-  org_type?: string;
+  
+  // Hierarchy fields
+  parent_name?: string;
+  children?: Organization[];
   members?: Member[];
+  member_count?: number;
 }
 
-// Extended organization interface if you need additional frontend-specific fields
-export interface OrganizationWithMetadata extends Organization {
-  user_count?: number;
-  admin_count?: number;
-  is_current_user_admin?: boolean;
-}
-
-// Member interface - matches backend Member struct
 export interface Member {
   user_id: string;
   email: string;
   first_name: string;
   last_name: string;
-  role: 'admin' | 'member';
+  role: 'owner' | 'admin' | 'member';
   joined_at: string;
 }
 
-// For organization creation
-export interface CreateOrganizationRequest {
+export interface OrgMember {
+  org_id: string;
+  org_name: string;
+  org_type: 'organization' | 'tenant';
+  role: 'owner' | 'admin' | 'member';
+  joined_at: string;
+  parent_name?: string;
+}
+
+export interface CreateOrgRequest {
   name: string;
   description: string;
-  org_type: string;
-  domain_id?: string;
-  org_id?: string;
-  data?: {[key: string]: any};
+  org_type: 'organization' | 'tenant';
+  parent_id?: string; // Required for tenants
+  data?: Record<string, any>;
 }
 
-// For organization updates
-export interface UpdateOrganizationRequest {
-  name?: string;
-  description?: string;
-  org_type?: string;
-  domain_id?: string;
-  org_id?: string;
-  data?: {[key: string]: any};
-}
-
-// For creating organization requests (alias for consistency)
-export interface CreateOrgRequest extends CreateOrganizationRequest {}
-
-// For inviting users to organizations
 export interface InviteUserRequest {
   email: string;
-  role: 'admin' | 'member';
+  role: 'member' | 'admin';
 }
 
-// For updating member roles
 export interface UpdateMemberRoleRequest {
-  role: 'admin' | 'member';
+  role: 'member' | 'admin' | 'owner';
 }
+
+export type UserRole = 'member' | 'admin' | 'owner';
+export type OrgType = 'organization' | 'tenant';

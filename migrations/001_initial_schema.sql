@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS organizations(
     id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
     domain_id uuid NULL,
     org_id uuid NULL,
+    parent_id uuid NULL, -- ADDED: For tenant->org relationship
     org_type OrgType NOT NULL,
     name varchar(1024) NOT NULL UNIQUE,
     description text,
@@ -54,12 +55,18 @@ ALTER TABLE organizations
 ADD CONSTRAINT fk_organizations_owner 
 FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE SET NULL;
 
+-- ADDED: Add parent relationship constraint
+ALTER TABLE organizations 
+ADD CONSTRAINT fk_organizations_parent 
+FOREIGN KEY (parent_id) REFERENCES organizations(id) ON DELETE CASCADE;
+
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_org_id ON users(org_id);
 CREATE INDEX IF NOT EXISTS idx_organizations_name ON organizations(name);
 CREATE INDEX IF NOT EXISTS idx_organizations_type ON organizations(org_type);
 CREATE INDEX IF NOT EXISTS idx_organizations_default ON organizations(is_default); -- ADDED: Index for default org
+CREATE INDEX IF NOT EXISTS idx_organizations_parent_id ON organizations(parent_id); -- ADDED: Index for parent lookups
 CREATE INDEX IF NOT EXISTS idx_users_can_create_orgs ON users(can_create_organizations); -- ADDED: Index for org creation permission
 CREATE INDEX IF NOT EXISTS idx_user_org_links_user_id ON user_organization_links(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_org_links_org_id ON user_organization_links(organization_id);
@@ -131,3 +138,42 @@ $$ language 'plpgsql';
 CREATE TRIGGER handle_first_user_trigger
     AFTER INSERT ON users
     FOR EACH ROW EXECUTE FUNCTION handle_first_user_setup();
+
+-- ADDED: Function to enforce org hierarchy rules
+CREATE OR REPLACE FUNCTION enforce_org_hierarchy()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Rule 1: Organizations cannot have parents (they are top-level)
+    IF NEW.org_type = 'organization' AND NEW.parent_id IS NOT NULL THEN
+        RAISE EXCEPTION 'Organizations cannot be nested under other entities';
+    END IF;
+    
+    -- Rule 2: Tenants must have an organization parent
+    IF NEW.org_type = 'tenant' AND NEW.parent_id IS NULL THEN
+        RAISE EXCEPTION 'Tenants must be created under an organization';
+    END IF;
+    
+    -- Rule 3: Tenants can only be under organizations (not other tenants)
+    IF NEW.org_type = 'tenant' AND NEW.parent_id IS NOT NULL THEN
+        -- Check parent is an organization
+        IF NOT EXISTS (
+            SELECT 1 FROM organizations 
+            WHERE id = NEW.parent_id AND org_type = 'organization'
+        ) THEN
+            RAISE EXCEPTION 'Tenants can only be created under organizations';
+        END IF;
+    END IF;
+    
+    -- Rule 4: Domains are ignored (prevent creation)
+    IF NEW.org_type = 'domain' THEN
+        RAISE EXCEPTION 'Domain type is currently disabled';
+    END IF;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ADDED: Create trigger to enforce hierarchy
+CREATE TRIGGER enforce_org_hierarchy_trigger
+    BEFORE INSERT OR UPDATE ON organizations
+    FOR EACH ROW EXECUTE FUNCTION enforce_org_hierarchy();

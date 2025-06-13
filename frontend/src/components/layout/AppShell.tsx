@@ -1,3 +1,4 @@
+// frontend/src/components/layout/AppShell.tsx
 import React, { useState } from 'react';
 import {
   AppShell as MantineAppShell,
@@ -10,6 +11,7 @@ import {
   UnstyledButton,
   Box,
   useMantineColorScheme,
+  Divider,
 } from '@mantine/core';
 import {
   IconSun,
@@ -22,6 +24,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { Navigation } from './Navigation';
+import { OrganizationSwitcher } from './OrganizationSwitcher';
 
 interface AppShellLayoutProps {
   children: React.ReactNode;
@@ -49,22 +52,35 @@ export function AppShell({ children, toggleColorScheme }: AppShellLayoutProps) {
     return `${user.first_name} ${user.last_name}`.trim() || user.email;
   };
 
+  const handleCreateOrganization = () => {
+    setOpened(false);
+    navigate('/organizations?create=true');
+  };
+
   return (
     <MantineAppShell
       header={{ height: 60 }}
-      navbar={{ width: 250, breakpoint: 'sm', collapsed: { mobile: !opened } }}
+      navbar={{ width: 280, breakpoint: 'sm', collapsed: { mobile: !opened } }}
       padding="md"
     >
       <MantineAppShell.Header>
         <Group h="100%" px="md" justify="space-between">
           <Group>
             <Burger opened={opened} onClick={() => setOpened(!opened)} hiddenFrom="sm" size="sm" />
-            <Text size="xl" fw={700}>
+            <Text size="xl" fw={700} c="blue">
               UserMS
             </Text>
           </Group>
 
-          <Group>
+          <Group gap="sm">
+            {/* Organization Switcher in Header */}
+            <Box visibleFrom="sm">
+              <OrganizationSwitcher
+                compact={true}
+                onCreateClick={handleCreateOrganization}
+              />
+            </Box>
+
             <ActionIcon
               variant="default"
               onClick={toggleColorScheme}
@@ -81,7 +97,7 @@ export function AppShell({ children, toggleColorScheme }: AppShellLayoutProps) {
                     <Avatar size={30} radius="xl" color="blue">
                       {getUserInitials()}
                     </Avatar>
-                    <Box style={{ flex: 1 }}>
+                    <Box style={{ flex: 1 }} visibleFrom="sm">
                       <Text size="sm" fw={500}>
                         {getUserDisplayName()}
                       </Text>
@@ -117,6 +133,14 @@ export function AppShell({ children, toggleColorScheme }: AppShellLayoutProps) {
       </MantineAppShell.Header>
 
       <MantineAppShell.Navbar p="md">
+        {/* Mobile Organization Switcher */}
+        <Box hiddenFrom="sm" mb="md">
+          <OrganizationSwitcher
+            onCreateClick={handleCreateOrganization}
+          />
+          <Divider my="sm" />
+        </Box>
+        
         <Navigation onNavigate={() => setOpened(false)} />
       </MantineAppShell.Navbar>
 

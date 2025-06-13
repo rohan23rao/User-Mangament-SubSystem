@@ -73,7 +73,7 @@ export default function UsersPage() {
     
     const roles = user.organizations.map(org => org.role);
     if (roles.includes('admin')) return 'admin';
-    if (roles.includes('manager')) return 'manager';
+    // if (roles.includes('manager')) return 'manager';
     return 'member';
   };
 
