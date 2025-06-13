@@ -117,6 +117,7 @@ func (s *Server) setupRoutes() http.Handler {
 	api.HandleFunc("/organizations/{id}/members", s.orgHandler.GetMembers).Methods("GET")  // FIXED: Was GetOrganizationMembers, now GetMembers
 	api.HandleFunc("/organizations/{id}/members", s.orgHandler.AddMember).Methods("POST")  // FIXED: Was InviteUser, now AddMember
 	api.HandleFunc("/organizations/{id}/members/{user_id}", s.orgHandler.UpdateMemberRole).Methods("PUT")
+	api.HandleFunc("/organizations/{id}/members/{user_id}", s.orgHandler.RemoveMember).Methods("DELETE")
 	// REMOVED: RemoveMember method doesn't exist in your OrganizationHandler
 
 	// NEW: OAuth2 M2M endpoints

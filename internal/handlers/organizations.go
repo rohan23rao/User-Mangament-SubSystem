@@ -41,7 +41,7 @@ func (h *OrganizationHandler) CreateOrganization(w http.ResponseWriter, r *http.
 
 	logger.Auth("Organization creation authorized for user: %s", session.Identity.Id)
 
-	// ADDED: Check if user has permission to create organizations
+	// Check if user has permission to create organizations
 	var canCreateOrgs bool
 	err = h.db.QueryRow("SELECT can_create_organizations FROM users WHERE id = $1", session.Identity.Id).Scan(&canCreateOrgs)
 	if err != nil {
@@ -105,7 +105,7 @@ func (h *OrganizationHandler) CreateOrganization(w http.ResponseWriter, r *http.
 
 	logger.DB("Organization created with ID: %s", orgID)
 
-	// CHANGED: Add owner as 'owner' role instead of 'admin'
+	// Add owner as 'owner' role
 	_, err = h.db.Exec(`
 		INSERT INTO user_organization_links (user_id, organization_id, role)
 		VALUES ($1, $2, $3)`,
@@ -469,18 +469,96 @@ func (h *OrganizationHandler) UpdateMemberRole(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// Check if target user is currently an owner - prevent owner demotion
+	var currentRole string
+	err = h.db.QueryRow(`
+		SELECT role FROM user_organization_links 
+		WHERE user_id = $1 AND organization_id = $2`,
+		userID, orgID,
+	).Scan(&currentRole)
+	
+	if err == nil && currentRole == "owner" && req.Role != "owner" {
+		logger.Auth("Attempt to demote owner %s blocked", userID)
+		http.Error(w, "Forbidden: Cannot demote organization owner", http.StatusForbidden)
+		return
+	}
+
+	// Only owners can promote to owner
+	if req.Role == "owner" && !h.isOrgOwner(session.Identity.Id, orgID) {
+		logger.Auth("Non-owner %s attempted to promote user to owner", session.Identity.Id)
+		http.Error(w, "Forbidden: Only owners can promote users to owner", http.StatusForbidden)
+		return
+	}
+
 	logger.Info("Updating member %s role to %s in organization %s", userID, req.Role, orgID)
 
-	_, err = h.db.Exec(`
-		UPDATE user_organization_links 
-		SET role = $1 
-		WHERE user_id = $2 AND organization_id = $3`,
-		req.Role, userID, orgID,
-	)
-	if err != nil {
-		logger.Error("Failed to update member role: %v", err)
-		http.Error(w, "Failed to update member role", http.StatusInternalServerError)
-		return
+	// If promoting to owner, handle ownership transfer
+	if req.Role == "owner" {
+		tx, err := h.db.Begin()
+		if err != nil {
+			logger.Error("Failed to begin transaction: %v", err)
+			http.Error(w, "Failed to update member role", http.StatusInternalServerError)
+			return
+		}
+		defer tx.Rollback()
+
+		// Update user_organization_links
+		_, err = tx.Exec(`
+			UPDATE user_organization_links 
+			SET role = $1 
+			WHERE user_id = $2 AND organization_id = $3`,
+			req.Role, userID, orgID,
+		)
+		if err != nil {
+			logger.Error("Failed to update member role: %v", err)
+			http.Error(w, "Failed to update member role", http.StatusInternalServerError)
+			return
+		}
+
+		// Update organizations.owner_id
+		_, err = tx.Exec(`
+			UPDATE organizations 
+			SET owner_id = $1, updated_at = CURRENT_TIMESTAMP
+			WHERE id = $2`,
+			userID, orgID,
+		)
+		if err != nil {
+			logger.Error("Failed to update organization owner: %v", err)
+			http.Error(w, "Failed to update member role", http.StatusInternalServerError)
+			return
+		}
+
+		// Demote previous owner to admin
+		_, err = tx.Exec(`
+			UPDATE user_organization_links 
+			SET role = 'admin' 
+			WHERE organization_id = $1 AND role = 'owner' AND user_id != $2`,
+			orgID, userID,
+		)
+		if err != nil {
+			logger.Error("Failed to demote previous owner: %v", err)
+			http.Error(w, "Failed to update member role", http.StatusInternalServerError)
+			return
+		}
+
+		if err = tx.Commit(); err != nil {
+			logger.Error("Failed to commit ownership transfer: %v", err)
+			http.Error(w, "Failed to update member role", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		// Regular role update
+		_, err = h.db.Exec(`
+			UPDATE user_organization_links 
+			SET role = $1 
+			WHERE user_id = $2 AND organization_id = $3`,
+			req.Role, userID, orgID,
+		)
+		if err != nil {
+			logger.Error("Failed to update member role: %v", err)
+			http.Error(w, "Failed to update member role", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Get updated member info
@@ -504,7 +582,58 @@ func (h *OrganizationHandler) UpdateMemberRole(w http.ResponseWriter, r *http.Re
 
 	logger.Success("Member %s role updated successfully to %s in organization %s", userID, req.Role, orgID)
 }
+func (h *OrganizationHandler) RemoveMember(w http.ResponseWriter, r *http.Request) {
+	session, err := h.authService.GetSessionFromRequest(r)
+	if err != nil {
+		logger.Auth("Unauthorized remove member: %v", err)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
+	vars := mux.Vars(r)
+	orgID := vars["id"]
+	targetUserID := vars["user_id"]
+
+	if !h.isOrgAdmin(session.Identity.Id, orgID) {
+		logger.Auth("User %s not admin of organization %s", session.Identity.Id, orgID)
+		http.Error(w, "Forbidden: Only admins can remove members", http.StatusForbidden)
+		return
+	}
+
+	// Check if target user is an owner - cannot remove owners
+	var targetRole string
+	err = h.db.QueryRow(`
+		SELECT role FROM user_organization_links 
+		WHERE user_id = $1 AND organization_id = $2`,
+		targetUserID, orgID,
+	).Scan(&targetRole)
+	
+	if err == nil && targetRole == "owner" {
+		logger.Auth("Attempt to remove owner %s blocked", targetUserID)
+		http.Error(w, "Forbidden: Cannot remove organization owner", http.StatusForbidden)
+		return
+	}
+
+	result, err := h.db.Exec(`
+		DELETE FROM user_organization_links 
+		WHERE user_id = $1 AND organization_id = $2`,
+		targetUserID, orgID,
+	)
+	if err != nil {
+		logger.Error("Failed to remove member: %v", err)
+		http.Error(w, "Failed to remove member", http.StatusInternalServerError)
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		http.Error(w, "Member not found", http.StatusNotFound)
+		return
+	}
+
+	logger.Success("Member %s removed from organization %s", targetUserID, orgID)
+	w.WriteHeader(http.StatusNoContent)
+}
 // Helper functions
 func (h *OrganizationHandler) getOrgMembers(orgID string) ([]models.Member, error) {
 	rows, err := h.db.Query(`
@@ -566,8 +695,11 @@ func (h *OrganizationHandler) isOrgAdmin(userID, orgID string) bool {
 // ADDED: Helper function to check if user is organization owner
 func (h *OrganizationHandler) isOrgOwner(userID, orgID string) bool {
 	var count int
-	err := h.db.QueryRow(
-		"SELECT COUNT(*) FROM user_organization_links WHERE user_id = $1 AND organization_id = $2 AND role = 'owner'",
+	err := h.db.QueryRow(`
+		SELECT COUNT(*) FROM user_organization_links uol
+		JOIN organizations o ON uol.organization_id = o.id
+		WHERE uol.user_id = $1 AND uol.organization_id = $2 
+		AND (uol.role = 'owner' OR o.owner_id = $1)`,
 		userID, orgID,
 	).Scan(&count)
 	return err == nil && count > 0
