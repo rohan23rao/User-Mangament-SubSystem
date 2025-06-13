@@ -76,7 +76,7 @@ func (s *Service) CreateM2MClient(ctx context.Context, userID, orgID, name, desc
 		ClientID:     clientID,
 		ClientSecret: clientSecret, // Store encrypted in production
 		UserID:       userID,
-		OrgID:        orgID,
+		OrgID:        orgID,  // FIXED: Make sure orgID is properly assigned
 		Name:         name,
 		Description:  description,
 		Scopes:       "data_pipeline data_export telemetry_ingest",
@@ -98,11 +98,49 @@ func (s *Service) CreateM2MClient(ctx context.Context, userID, orgID, name, desc
 		logger.Error("Failed to store OAuth2 client in database: %v", err)
 		// Try to cleanup Hydra client
 		s.hydraAdmin.OAuth2API.DeleteOAuth2Client(ctx, clientID)
-		return nil, fmt.Errorf("failed to store OAuth2 client: %v", err)
+		return nil, fmt.Errorf("failed to store OAuth2 client in database: %v", err)
 	}
 
-	logger.Success("M2M OAuth2 client created: %s", clientID)
+	logger.Success("M2M OAuth2 client created: %s for org: %s", clientID, orgID)
 	return oauth2Client, nil
+}
+
+// Also add the ListUserM2MClients fix to ensure empty arrays instead of null
+func (s *Service) ListUserM2MClients(ctx context.Context, userID string) ([]models.OAuth2Client, error) {
+	logger.Info("Listing M2M OAuth2 clients for user: %s", userID)
+
+	rows, err := s.db.Query(`
+		SELECT id, client_id, name, description, scopes, is_active, created_at, updated_at, org_id
+		FROM oauth2_clients 
+		WHERE user_id = $1 AND is_active = true
+		ORDER BY created_at DESC`, userID)
+
+	if err != nil {
+		logger.Error("Failed to query OAuth2 clients: %v", err)
+		return nil, fmt.Errorf("failed to query OAuth2 clients: %v", err)
+	}
+	defer rows.Close()
+
+	// Initialize with empty slice to ensure JSON returns [] instead of null
+	clients := make([]models.OAuth2Client, 0)
+	
+	for rows.Next() {
+		var client models.OAuth2Client
+		err := rows.Scan(&client.ID, &client.ClientID, &client.Name,
+			&client.Description, &client.Scopes, &client.IsActive,
+			&client.CreatedAt, &client.UpdatedAt, &client.OrgID)  // FIXED: Include org_id in scan
+		if err != nil {
+			logger.Error("Failed to scan OAuth2 client: %v", err)
+			continue
+		}
+		client.UserID = userID
+		// Don't return client secret in list operations
+		client.ClientSecret = ""
+		clients = append(clients, client)
+	}
+
+	logger.Success("Found %d M2M OAuth2 clients for user: %s", len(clients), userID)
+	return clients, nil
 }
 
 // RevokeM2MClient revokes and deletes a machine-to-machine client
@@ -129,41 +167,7 @@ func (s *Service) RevokeM2MClient(ctx context.Context, clientID string) error {
 	return nil
 }
 
-// ListUserM2MClients lists all M2M clients for a user
-func (s *Service) ListUserM2MClients(ctx context.Context, userID string) ([]models.OAuth2Client, error) {
-	logger.Info("Listing M2M OAuth2 clients for user: %s", userID)
 
-	rows, err := s.db.Query(`
-		SELECT id, client_id, name, description, scopes, is_active, created_at, updated_at
-		FROM oauth2_clients 
-		WHERE user_id = $1 AND is_active = true
-		ORDER BY created_at DESC`, userID)
-
-	if err != nil {
-		logger.Error("Failed to query OAuth2 clients: %v", err)
-		return nil, fmt.Errorf("failed to query OAuth2 clients: %v", err)
-	}
-	defer rows.Close()
-
-	var clients []models.OAuth2Client
-	for rows.Next() {
-		var client models.OAuth2Client
-		err := rows.Scan(&client.ID, &client.ClientID, &client.Name,
-			&client.Description, &client.Scopes, &client.IsActive,
-			&client.CreatedAt, &client.UpdatedAt)
-		if err != nil {
-			logger.Error("Failed to scan OAuth2 client: %v", err)
-			continue
-		}
-		client.UserID = userID
-		// Don't return client secret in list operations
-		client.ClientSecret = ""
-		clients = append(clients, client)
-	}
-
-	logger.Success("Found %d M2M OAuth2 clients for user: %s", len(clients), userID)
-	return clients, nil
-}
 
 // GenerateM2MToken generates an access token for machine-to-machine authentication
 func (s *Service) GenerateM2MToken(ctx context.Context, clientID, clientSecret string) (*models.TokenResponse, error) {

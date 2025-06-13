@@ -47,3 +47,31 @@ export const ORG_TYPE_DESCRIPTIONS = {
   [ORG_TYPES.ORGANIZATION]: 'Top-level workspace for your company or team',
   [ORG_TYPES.TENANT]: 'Project or environment within an organization',
 } as const;
+
+// OAuth2 related constants
+export const OAUTH2_SCOPES = {
+  DATA_PIPELINE: 'data_pipeline',
+  DATA_EXPORT: 'data_export',
+  TELEMETRY_INGEST: 'telemetry_ingest',
+  READ_ONLY: 'read',
+  FULL_ACCESS: 'data_pipeline data_export telemetry_ingest',
+} as const;
+
+export const SCOPE_DESCRIPTIONS = {
+  [OAUTH2_SCOPES.DATA_PIPELINE]: 'Access to data pipeline operations',
+  [OAUTH2_SCOPES.DATA_EXPORT]: 'Export data and generate reports',
+  [OAUTH2_SCOPES.TELEMETRY_INGEST]: 'Send telemetry and metrics data',
+  [OAUTH2_SCOPES.READ_ONLY]: 'Read-only access to resources',
+  [OAUTH2_SCOPES.FULL_ACCESS]: 'Full access to all operations',
+} as const;
+
+export const OAUTH2_GRANT_TYPES = {
+  CLIENT_CREDENTIALS: 'client_credentials',
+  AUTHORIZATION_CODE: 'authorization_code',
+  REFRESH_TOKEN: 'refresh_token',
+} as const;
+
+export const TOKEN_TYPES = {
+  BEARER: 'Bearer',
+  MAC: 'MAC',
+} as const;

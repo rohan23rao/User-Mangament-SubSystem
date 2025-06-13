@@ -2,6 +2,7 @@
 import axios from 'axios';
 import { User } from '../types/user';
 import { Organization, CreateOrgRequest, InviteUserRequest, UpdateMemberRoleRequest, Member } from '../types/organization';
+import { OAuth2Client, CreateM2MClientRequest, TokenRequest, TokenResponse, OAuth2ClientsResponse, TokenInfo } from '../types/oauth2';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
 
@@ -76,6 +77,46 @@ export class ApiService {
 
   static async updateMemberRole(organizationId: string, userId: string, data: UpdateMemberRoleRequest): Promise<Member> {
     const response = await axios.put(`/api/organizations/${organizationId}/members/${userId}`, data);
+    return response.data;
+  }
+
+  // OAuth2 M2M Client endpoints
+  static async getOAuth2Clients(): Promise<OAuth2ClientsResponse> {
+    const response = await axios.get('/api/oauth2/clients');
+    return response.data;
+  }
+
+  static async createOAuth2Client(data: CreateM2MClientRequest): Promise<OAuth2Client> {
+    const response = await axios.post('/api/oauth2/clients', data);
+    return response.data;
+  }
+
+  static async getOAuth2Client(clientId: string): Promise<OAuth2Client> {
+    const response = await axios.get(`/api/oauth2/clients/${clientId}`);
+    return response.data;
+  }
+
+  static async revokeOAuth2Client(clientId: string): Promise<void> {
+    await axios.delete(`/api/oauth2/clients/${clientId}`);
+  }
+
+  static async regenerateClientSecret(clientId: string): Promise<OAuth2Client> {
+    const response = await axios.post(`/api/oauth2/clients/${clientId}/regenerate`);
+    return response.data;
+  }
+
+  // OAuth2 Token endpoints
+  static async generateToken(data: TokenRequest): Promise<TokenResponse> {
+    const response = await axios.post('/api/oauth2/token', data);
+    return response.data;
+  }
+
+  static async validateToken(token: string): Promise<TokenInfo> {
+    const response = await axios.post('/api/oauth2/validate', {}, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
     return response.data;
   }
 

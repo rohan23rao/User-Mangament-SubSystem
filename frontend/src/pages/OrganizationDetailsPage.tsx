@@ -43,10 +43,12 @@ import {
   IconBuildingStore,
   IconInfoCircle,
   IconChevronRight,
+  IconKey,
 } from '@tabler/icons-react';
 import { useAuth } from '../hooks/useAuth';
 import { ApiService } from '../services/api';
 import { Organization, Member, InviteUserRequest, UpdateMemberRoleRequest } from '../types/organization';
+import { OAuth2ClientsList } from '../components/oauth2/OAuth2ClientsList';
 
 export default function OrganizationDetailsPage() {
   const navigate = useNavigate();
@@ -208,6 +210,10 @@ export default function OrganizationDetailsPage() {
     return isAdmin();
   };
 
+  const canManageOAuth2 = () => {
+    return isAdmin();
+  };
+
   const getRoleIcon = (role: string) => {
     switch (role) {
       case 'owner': return <IconCrown size="0.9rem" />;
@@ -305,6 +311,9 @@ export default function OrganizationDetailsPage() {
             </Tabs.Tab>
             <Tabs.Tab value="members" leftSection={<IconUsers size="0.9rem" />}>
               Members ({members.length})
+            </Tabs.Tab>
+            <Tabs.Tab value="oauth2" leftSection={<IconKey size="0.9rem" />}>
+              API Clients
             </Tabs.Tab>
             {organization.org_type === 'organization' && (
               <Tabs.Tab value="tenants" leftSection={<IconBuildingStore size="0.9rem" />}>
@@ -475,6 +484,15 @@ export default function OrganizationDetailsPage() {
                 </Table>
               )}
             </Card>
+          </Tabs.Panel>
+
+          {/* OAuth2 Tab */}
+          <Tabs.Panel value="oauth2" pt="lg">
+            <OAuth2ClientsList
+              organizationId={id!}
+              organizationName={organization.name}
+              canManageClients={canManageOAuth2()}
+            />
           </Tabs.Panel>
 
           {/* Tenants Tab (only for organizations) */}
