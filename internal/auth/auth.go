@@ -24,7 +24,7 @@ func (s *Service) GetSessionFromRequest(r *http.Request) (*client.Session, error
 	cookie, err := r.Cookie("ory_kratos_session")
 	if err == nil && cookie.Value != "" {
 		logger.Auth("Attempting authentication with session cookie")
-		session, resp, err := s.kratosPublic.FrontendApi.ToSession(context.Background()).
+		session, resp, err := s.kratosPublic.FrontendAPI.ToSession(context.Background()).
 			Cookie(cookie.String()).
 			Execute()
 		if err != nil {
@@ -45,7 +45,7 @@ func (s *Service) GetSessionFromRequest(r *http.Request) (*client.Session, error
 			sessionToken := strings.TrimPrefix(authHeader, "Bearer ")
 			logger.Auth("Attempting authentication with bearer token")
 			
-			session, resp, err := s.kratosPublic.FrontendApi.ToSession(context.Background()).
+			session, resp, err := s.kratosPublic.FrontendAPI.ToSession(context.Background()).
 				XSessionToken(sessionToken).
 				Execute()
 			if err != nil {

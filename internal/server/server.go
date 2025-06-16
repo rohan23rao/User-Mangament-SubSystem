@@ -2,12 +2,14 @@ package server
 
 import (
 	"fmt"
-	"log"
 	"net/http"
+	"os"
 	"strings"
+	"time"
 
-	"github.com/gorilla/handlers"
-	"github.com/gorilla/mux"
+	"github.com/rs/cors"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	client "github.com/ory/kratos-client-go"
 	hydra "github.com/ory/hydra-client-go/v2"
 
@@ -30,9 +32,15 @@ type Server struct {
 	healthHandler         *handlersPackage.HealthHandler
 	webhookHandler        *handlersPackage.WebhookHandler
 	verificationHandler   *handlersPackage.VerificationHandler
+	mux                   *http.ServeMux
+	server                *http.Server
 }
 
 func New(cfg *config.Config) *Server {
+	// Setup structured logging
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339})
+
 	logger.Info("Initializing server with Kratos and Hydra URLs:")
 	logger.Info("  Kratos Public: %s", cfg.KratosPublicURL)
 	logger.Info("  Kratos Admin: %s", cfg.KratosAdminURL)
@@ -59,7 +67,7 @@ func New(cfg *config.Config) *Server {
 	db, err := database.New(cfg.DatabaseURL)
 	if err != nil {
 		logger.Error("Failed to initialize database: %v", err)
-		log.Fatal("Database initialization failed")
+		log.Fatal().Err(err).Msg("Database initialization failed")
 	}
 	logger.Success("Database initialized successfully")
 
@@ -75,6 +83,9 @@ func New(cfg *config.Config) *Server {
 	webhookHandler := handlersPackage.NewWebhookHandler(userHandler)
 	verificationHandler := handlersPackage.NewVerificationHandler(authService, kratosAdmin)
 
+	// Create ServeMux
+	mux := http.NewServeMux()
+
 	return &Server{
 		config:                cfg,
 		authService:           authService,
@@ -85,65 +96,94 @@ func New(cfg *config.Config) *Server {
 		healthHandler:         healthHandler,
 		webhookHandler:        webhookHandler,
 		verificationHandler:   verificationHandler,
+		mux:                   mux,
 	}
 }
 
 func (s *Server) setupRoutes() http.Handler {
-	r := mux.NewRouter()
-
-	// Add logging middleware
-	r.Use(middleware.LoggingMiddleware(s.authService))
-
 	// Health check endpoint
-	r.HandleFunc("/health", s.healthHandler.HealthCheck).Methods("GET")
+	s.mux.HandleFunc("GET /health", s.healthHandler.HealthCheck)
 
-	// API routes
-	api := r.PathPrefix("/api").Subrouter()
+	// API routes with authentication middleware
+	s.mux.HandleFunc("GET /api/whoami", s.withAuth(s.userHandler.WhoAmI))
+	s.mux.HandleFunc("GET /api/users", s.withAuth(s.userHandler.ListUsers))
+	s.mux.HandleFunc("GET /api/users/{id}", s.withAuth(s.userHandler.GetUser))
+	s.mux.HandleFunc("GET /api/debug/auth", s.userHandler.DebugAuth) // No auth for debug
 
-	// User endpoints - CORRECTED: Using the actual method names from your UserHandler
-	api.HandleFunc("/whoami", s.userHandler.WhoAmI).Methods("GET")
-	api.HandleFunc("/users", s.userHandler.ListUsers).Methods("GET")  // FIXED: Was GetUsers, now ListUsers
-	api.HandleFunc("/users/{id}", s.userHandler.GetUser).Methods("GET")
-	// REMOVED: DebugAuth method doesn't exist in your UserHandler
+	// Organization endpoints
+	s.mux.HandleFunc("GET /api/organizations", s.withAuth(s.orgHandler.ListOrganizations))
+	s.mux.HandleFunc("POST /api/organizations", s.withAuth(s.orgHandler.CreateOrganization))
+	s.mux.HandleFunc("GET /api/organizations/{id}", s.withAuth(s.orgHandler.GetOrganization))
+	s.mux.HandleFunc("PUT /api/organizations/{id}", s.withAuth(s.orgHandler.UpdateOrganization))
+	s.mux.HandleFunc("DELETE /api/organizations/{id}", s.withAuth(s.orgHandler.DeleteOrganization))
 
-	// Organization endpoints - CORRECTED: Using the actual method names from your OrganizationHandler
-	api.HandleFunc("/organizations", s.orgHandler.ListOrganizations).Methods("GET")  // FIXED: Was GetOrganizations, now ListOrganizations
-	api.HandleFunc("/organizations", s.orgHandler.CreateOrganization).Methods("POST")
-	api.HandleFunc("/organizations/{id}", s.orgHandler.GetOrganization).Methods("GET")
-	api.HandleFunc("/organizations/{id}", s.orgHandler.UpdateOrganization).Methods("PUT")
-	api.HandleFunc("/organizations/{id}", s.orgHandler.DeleteOrganization).Methods("DELETE")
+	// Organization member endpoints
+	s.mux.HandleFunc("GET /api/organizations/{id}/members", s.withAuth(s.orgHandler.GetMembers))
+	s.mux.HandleFunc("POST /api/organizations/{id}/members", s.withAuth(s.orgHandler.AddMember))
+	s.mux.HandleFunc("PUT /api/organizations/{id}/members/{user_id}", s.withAuth(s.orgHandler.UpdateMemberRole))
+	s.mux.HandleFunc("DELETE /api/organizations/{id}/members/{user_id}", s.withAuth(s.orgHandler.RemoveMember))
+	s.mux.HandleFunc("GET /api/organizations/{id}/tenants", s.withAuth(s.orgHandler.GetOrganizationWithTenants))
 
-	// Organization member endpoints - CORRECTED: Using the actual method names
-	api.HandleFunc("/organizations/{id}/members", s.orgHandler.GetMembers).Methods("GET")  // FIXED: Was GetOrganizationMembers, now GetMembers
-	api.HandleFunc("/organizations/{id}/members", s.orgHandler.AddMember).Methods("POST")  // FIXED: Was InviteUser, now AddMember
-	api.HandleFunc("/organizations/{id}/members/{user_id}", s.orgHandler.UpdateMemberRole).Methods("PUT")
-	api.HandleFunc("/organizations/{id}/members/{user_id}", s.orgHandler.RemoveMember).Methods("DELETE")
-	api.HandleFunc("/organizations/{id}/tenants", s.orgHandler.GetOrganizationWithTenants).Methods("GET")
-	// REMOVED: RemoveMember method doesn't exist in your OrganizationHandler
+	// OAuth2 M2M endpoints
+	s.mux.HandleFunc("POST /api/oauth2/clients", s.withAuth(s.oauth2Handler.CreateM2MClient))
+	s.mux.HandleFunc("GET /api/oauth2/clients", s.withAuth(s.oauth2Handler.ListM2MClients))
+	s.mux.HandleFunc("GET /api/oauth2/clients/{clientId}", s.withAuth(s.oauth2Handler.GetM2MClientInfo))
+	s.mux.HandleFunc("DELETE /api/oauth2/clients/{clientId}", s.withAuth(s.oauth2Handler.RevokeM2MClient))
+	s.mux.HandleFunc("POST /api/oauth2/clients/{clientId}/regenerate", s.withAuth(s.oauth2Handler.RegenerateM2MClientSecret))
 
-	// NEW: OAuth2 M2M endpoints
-	oauth2Routes := api.PathPrefix("/oauth2").Subrouter()
-	oauth2Routes.HandleFunc("/clients", s.oauth2Handler.CreateM2MClient).Methods("POST")
-	oauth2Routes.HandleFunc("/clients", s.oauth2Handler.ListM2MClients).Methods("GET")
-	oauth2Routes.HandleFunc("/clients/{clientId}", s.oauth2Handler.GetM2MClientInfo).Methods("GET")
-	oauth2Routes.HandleFunc("/clients/{clientId}", s.oauth2Handler.RevokeM2MClient).Methods("DELETE")
-	oauth2Routes.HandleFunc("/clients/{clientId}/regenerate", s.oauth2Handler.RegenerateM2MClientSecret).Methods("POST")
-	
 	// Token endpoints (public endpoints for M2M authentication)
-	api.HandleFunc("/oauth2/token", s.oauth2Handler.GenerateM2MToken).Methods("POST")
-	api.HandleFunc("/oauth2/validate", s.oauth2Handler.ValidateM2MToken).Methods("POST")
+	s.mux.HandleFunc("POST /api/oauth2/token", s.oauth2Handler.GenerateM2MToken)
+	s.mux.HandleFunc("POST /api/oauth2/validate", s.oauth2Handler.ValidateM2MToken)
 
 	// Verification endpoints
-	api.HandleFunc("/users/{id}/verification/status", s.verificationHandler.GetVerificationStatus).Methods("GET")
-	api.HandleFunc("/verification/flow", s.verificationHandler.CreateVerificationFlow).Methods("GET")
+	s.mux.HandleFunc("GET /api/users/{id}/verification/status", s.withAuth(s.verificationHandler.GetVerificationStatus))
+	s.mux.HandleFunc("GET /api/verification/flow", s.verificationHandler.CreateVerificationFlow)
 
 	// Webhook endpoints
-	hooks := r.PathPrefix("/hooks").Subrouter()
-	hooks.HandleFunc("/after-registration", s.webhookHandler.HandleAfterRegistration).Methods("POST")
-	hooks.HandleFunc("/after-login", s.webhookHandler.HandleAfterLogin).Methods("POST")
-	hooks.HandleFunc("/after-verification", s.webhookHandler.HandleAfterVerification).Methods("POST")
+	s.mux.HandleFunc("POST /hooks/after-registration", s.webhookHandler.HandleAfterRegistration)
+	s.mux.HandleFunc("POST /hooks/after-login", s.webhookHandler.HandleAfterLogin)
+	s.mux.HandleFunc("POST /hooks/after-verification", s.webhookHandler.HandleAfterVerification)
 
-	return r
+	// Setup CORS
+	corsOptions := cors.Options{
+		AllowedOrigins: []string{
+			"http://localhost:3000",
+			"http://localhost:3001",
+			"http://localhost:8080",
+			"http://172.16.1.65:3000",
+			"http://172.16.1.65:3001",
+			"http://172.16.1.65:8080",
+			"http://172.16.1.66:3000",
+			"http://172.16.1.66:3001",
+			"http://172.16.1.66:8080",
+			"file://",
+		},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Content-Type", "Authorization", "Cookie"},
+		AllowCredentials: true,
+	}
+
+	corsHandler := cors.New(corsOptions)
+
+	// Wrap with middlewares
+	handler := middleware.LoggingMiddleware(s.authService)(corsHandler.Handler(s.mux))
+
+	return handler
+}
+
+// withAuth wraps handlers with authentication middleware
+func (s *Server) withAuth(handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		_, err := s.authService.GetSessionFromRequest(r)
+		if err != nil {
+			logger.Auth("Unauthorized request: %v", err)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Add session to request context if needed
+		handler.ServeHTTP(w, r)
+	}
 }
 
 func (s *Server) Start() error {
@@ -155,24 +195,6 @@ func (s *Server) Start() error {
 	fmt.Printf("%s", logger.ColorReset)
 
 	router := s.setupRoutes()
-
-	corsHandler := handlers.CORS(
-		handlers.AllowedOrigins([]string{
-			"http://localhost:3000",
-			"http://localhost:3001",
-			"http://localhost:8080",
-			"http://172.16.1.65:3000",
-			"http://172.16.1.65:3001",
-			"http://172.16.1.65:8080",
-			"http://172.16.1.66:3000",
-			"http://172.16.1.66:3001",
-			"http://172.16.1.66:8080",
-			"file://",
-		}),
-		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
-		handlers.AllowedHeaders([]string{"Content-Type", "Authorization", "Cookie"}),
-		handlers.AllowCredentials(),
-	)(router)
 
 	logger.Info("Server configuration:")
 	logger.Info("  Port: %s", s.config.Port)
@@ -196,5 +218,14 @@ func (s *Server) Start() error {
 	fmt.Printf("%s\n", logger.ColorReset)
 
 	logger.Success("Server starting on port %s", s.config.Port)
-	return http.ListenAndServe(":"+s.config.Port, corsHandler)
+
+	s.server = &http.Server{
+		Addr:              ":" + s.config.Port,
+		Handler:           router,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
+	return s.server.ListenAndServe()
 }

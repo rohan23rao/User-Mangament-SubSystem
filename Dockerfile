@@ -1,4 +1,4 @@
-FROM golang:1.21-alpine AS development
+FROM golang:1.24-alpine AS development
 
 # Install necessary packages for development
 RUN apk add --no-cache git curl postgresql-client
@@ -25,7 +25,7 @@ EXPOSE 3000
 CMD ["air", "-c", ".air.toml"]
 
 # Production stage
-FROM golang:1.21-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 COPY go.mod go.sum ./

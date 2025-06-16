@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gorilla/mux"
 	"userms/internal/auth"
 	"userms/internal/logger"
 	"userms/internal/models"
@@ -120,8 +119,8 @@ func (h *OAuth2Handler) RevokeM2MClient(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Get client ID from URL
-	vars := mux.Vars(r)
-	clientID := vars["clientId"]
+	// Path parameters extracted with r.PathValue
+	clientID := r.PathValue("clientId")
 
 	if clientID == "" {
 		http.Error(w, "Client ID is required", http.StatusBadRequest)
@@ -231,8 +230,8 @@ func (h *OAuth2Handler) GetM2MClientInfo(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Get client ID from URL
-	vars := mux.Vars(r)
-	clientID := vars["clientId"]
+	// Path parameters extracted with r.PathValue
+	clientID := r.PathValue("clientId")
 
 	if clientID == "" {
 		http.Error(w, "Client ID is required", http.StatusBadRequest)
@@ -280,8 +279,8 @@ func (h *OAuth2Handler) RegenerateM2MClientSecret(w http.ResponseWriter, r *http
 	}
 
 	// Get client ID from URL
-	vars := mux.Vars(r)
-	clientID := vars["clientId"]
+	// Path parameters extracted with r.PathValue
+	clientID := r.PathValue("clientId")
 
 	if clientID == "" {
 		http.Error(w, "Client ID is required", http.StatusBadRequest)

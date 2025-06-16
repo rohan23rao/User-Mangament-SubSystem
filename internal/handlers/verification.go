@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/gorilla/mux"
 	client "github.com/ory/kratos-client-go"
 	"userms/internal/auth"
 	"userms/internal/logger"
@@ -27,8 +26,8 @@ func NewVerificationHandler(authService *auth.Service, kratosAdmin *client.APICl
 func (h *VerificationHandler) GetVerificationStatus(w http.ResponseWriter, r *http.Request) {
 	logger.Info("Processing verification status request")
 
-	vars := mux.Vars(r)
-	userID := vars["id"]
+	// Path parameters extracted with r.PathValue
+	userID := r.PathValue("id")
 
 	if userID == "" {
 		http.Error(w, "User ID is required", http.StatusBadRequest)
@@ -36,7 +35,7 @@ func (h *VerificationHandler) GetVerificationStatus(w http.ResponseWriter, r *ht
 	}
 
 	// Get the identity from Kratos
-	identity, resp, err := h.kratosAdmin.IdentityApi.GetIdentity(context.Background(), userID).Execute()
+	identity, resp, err := h.kratosAdmin.IdentityAPI.GetIdentity(context.Background(), userID).Execute()
 	if err != nil {
 		logger.Error("Failed to get identity: %v", err)
 		http.Error(w, "User not found", http.StatusNotFound)

@@ -8,7 +8,6 @@ import (
 	"time"
 	"strings"
 
-	"github.com/gorilla/mux"
 	client "github.com/ory/kratos-client-go"
 	"userms/internal/auth"
 	"userms/internal/logger"
@@ -40,7 +39,7 @@ func (h *UserHandler) WhoAmI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	logger.Auth("Whoami request authenticated for user: %s", session.Identity.Id)
-	user := h.mapIdentityToUser(&session.Identity)
+	user := h.mapIdentityToUser(session.Identity)
 
 	// Get user from database for additional info
 	dbUser, err := h.getUserFromDB(user.ID)
@@ -74,7 +73,7 @@ func (h *UserHandler) WhoAmI(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	logger.Info("Processing list users request")
 
-	identities, resp, err := h.kratosAdmin.IdentityApi.ListIdentities(context.Background()).Execute()
+	identities, resp, err := h.kratosAdmin.IdentityAPI.ListIdentities(context.Background()).Execute()
 	if err != nil {
 		logger.Error("Failed to fetch identities from Kratos: %v", err)
 		http.Error(w, "Failed to fetch users", http.StatusInternalServerError)
@@ -115,12 +114,12 @@ func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	userID := vars["id"]
+	// Path parameters extracted with r.PathValue
+	userID := r.PathValue("id")
 
 	logger.Info("Getting user details for ID: %s", userID)
 
-	identity, resp, err := h.kratosAdmin.IdentityApi.GetIdentity(context.Background(), userID).Execute()
+	identity, resp, err := h.kratosAdmin.IdentityAPI.GetIdentity(context.Background(), userID).Execute()
 	if err != nil {
 		logger.Error("Failed to fetch identity from Kratos: %v", err)
 		http.Error(w, "User not found", http.StatusNotFound)

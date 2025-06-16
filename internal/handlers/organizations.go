@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/gorilla/mux"
 	client "github.com/ory/kratos-client-go"
 	"userms/internal/auth"
 	"userms/internal/logger"
@@ -134,7 +133,7 @@ func (h *OrganizationHandler) CreateOrganization(w http.ResponseWriter, r *http.
 		return
 	}
 
-	h.saveUserProfile(&session.Identity)
+	h.saveUserProfile(session.Identity)
 
 	// Build response
 	org := models.Organization{
@@ -229,8 +228,8 @@ func (h *OrganizationHandler) GetOrganizationWithTenants(w http.ResponseWriter, 
 		return
 	}
 
-	vars := mux.Vars(r)
-	orgID := vars["id"]
+	// Path parameters extracted with r.PathValue
+	orgID := r.PathValue("id")
 
 	if !h.isOrgMember(session.Identity.Id, orgID) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
@@ -308,8 +307,8 @@ func (h *OrganizationHandler) GetOrganization(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	vars := mux.Vars(r)
-	orgID := vars["id"]
+	// Path parameters extracted with r.PathValue
+	orgID := r.PathValue("id")
 
 	if !h.isOrgMember(session.Identity.Id, orgID) {
 		logger.Auth("User %s not member of organization %s", session.Identity.Id, orgID)
@@ -364,8 +363,8 @@ func (h *OrganizationHandler) UpdateOrganization(w http.ResponseWriter, r *http.
 		return
 	}
 
-	vars := mux.Vars(r)
-	orgID := vars["id"]
+	// Path parameters extracted with r.PathValue
+	orgID := r.PathValue("id")
 
 	if !h.isOrgAdmin(session.Identity.Id, orgID) {
 		logger.Auth("User %s not admin of organization %s", session.Identity.Id, orgID)
@@ -409,8 +408,8 @@ func (h *OrganizationHandler) DeleteOrganization(w http.ResponseWriter, r *http.
 		return
 	}
 
-	vars := mux.Vars(r)
-	orgID := vars["id"]
+	// Path parameters extracted with r.PathValue
+	orgID := r.PathValue("id")
 
 	if !h.isOrgOwner(session.Identity.Id, orgID) {
 		logger.Auth("User %s not owner of organization %s", session.Identity.Id, orgID)
@@ -439,8 +438,8 @@ func (h *OrganizationHandler) AddMember(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	vars := mux.Vars(r)
-	orgID := vars["id"]
+	// Path parameters extracted with r.PathValue
+	orgID := r.PathValue("id")
 
 	if !h.isOrgAdmin(session.Identity.Id, orgID) {
 		logger.Auth("User %s not admin of organization %s", session.Identity.Id, orgID)
@@ -465,7 +464,7 @@ func (h *OrganizationHandler) AddMember(w http.ResponseWriter, r *http.Request) 
 	logger.Info("Adding member %s to organization %s with role %s", req.Email, orgID, req.Role)
 
 	// Find user by email from Kratos
-	identities, resp, err := h.kratosAdmin.IdentityApi.ListIdentities(context.Background()).Execute()
+	identities, resp, err := h.kratosAdmin.IdentityAPI.ListIdentities(context.Background()).Execute()
 	if err != nil {
 		logger.Error("Failed to fetch identities from Kratos: %v", err)
 		http.Error(w, "Failed to lookup user", http.StatusInternalServerError)
@@ -522,8 +521,8 @@ func (h *OrganizationHandler) GetMembers(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	vars := mux.Vars(r)
-	orgID := vars["id"]
+	// Path parameters extracted with r.PathValue
+	orgID := r.PathValue("id")
 
 	if !h.isOrgMember(session.Identity.Id, orgID) {
 		logger.Auth("User %s not member of organization %s", session.Identity.Id, orgID)
@@ -554,9 +553,9 @@ func (h *OrganizationHandler) UpdateMemberRole(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	vars := mux.Vars(r)
-	orgID := vars["id"]
-	userID := vars["user_id"]
+	// Path parameters extracted with r.PathValue
+	orgID := r.PathValue("id")
+	userID := r.PathValue("user_id")
 
 	if !h.isOrgAdmin(session.Identity.Id, orgID) {
 		logger.Auth("User %s not admin of organization %s", session.Identity.Id, orgID)
@@ -699,9 +698,9 @@ func (h *OrganizationHandler) RemoveMember(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	vars := mux.Vars(r)
-	orgID := vars["id"]
-	targetUserID := vars["user_id"]
+	// Path parameters extracted with r.PathValue
+	orgID := r.PathValue("id")
+	targetUserID := r.PathValue("user_id")
 
 	if !h.isOrgAdmin(session.Identity.Id, orgID) {
 		logger.Auth("User %s not admin of organization %s", session.Identity.Id, orgID)
